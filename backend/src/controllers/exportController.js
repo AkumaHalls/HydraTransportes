@@ -297,11 +297,8 @@ exports.comprovante = async (req, res) => {
       y += 18;
 
       const coords = corrida.rotaGeoJSON.coordinates;
-      const mapH = 200;
-      const mapW = pageW;
-      const pad = 25;
-      const drawW = mapW - pad * 2;
-      const drawH = mapH - pad * 2;
+      const mapH = 200, mapW = pageW, pad = 25;
+      const drawW = mapW - pad * 2, drawH = mapH - pad * 2;
 
       let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
       coords.forEach(([lng, lat]) => {
@@ -310,82 +307,93 @@ exports.comprovante = async (req, res) => {
         if (lng < minLng) minLng = lng;
         if (lng > maxLng) maxLng = lng;
       });
+      const lp = (maxLat - minLat) * 0.1 || 0.005;
+      const lngp = (maxLng - minLng) * 0.1 || 0.005;
+      minLat -= lp; maxLat += lp;
+      minLng -= lngp; maxLng += lngp;
 
-      const latPad = (maxLat - minLat) * 0.1 || 0.005;
-      const lngPad = (maxLng - minLng) * 0.1 || 0.005;
-      minLat -= latPad; maxLat += latPad;
-      minLng -= lngPad; maxLng += lngPad;
+      // Web Mercator helpers
+      const zoom = Math.max(8, Math.min(18, Math.round(Math.log2(drawW / 256 * 360 / (maxLng - minLng)))));
+      const n = Math.pow(2, zoom);
+      const TS = 256;
+      const gx = (lng) => (lng + 180) / 360 * n * TS;
+      const gy = (lat) => {
+        const r = lat * Math.PI / 180;
+        return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n * TS;
+      };
+      const projX = (lng) => LM + pad + (gx(lng) - gx(minLng)) / (gx(maxLng) - gx(minLng)) * drawW;
+      const projY = (lat) => y + pad + (gy(lat) - gy(minLat)) / (gy(maxLat) - gy(minLat)) * drawH;
 
-      // Tenta baixar imagem do mapa OSM
-      let mapImgBuffer = null;
+      // Tenta baixar tiles OSM
+      let mapOk = false;
       try {
-        const imgW = Math.round(drawW * 2.5);
-        const imgH = Math.round(drawH * 2.5);
-        const url = `https://render.openstreetmap.org/cgi-bin/export?bbox=${minLng},${minLat},${maxLng},${maxLat}&width=${imgW}&height=${imgH}&format=png`;
         const axios = require('axios');
-        const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
-        if (resp.status === 200) mapImgBuffer = Buffer.from(resp.data);
+        const tMinX = Math.floor(gx(minLng) / TS);
+        const tMaxX = Math.floor(gx(maxLng) / TS);
+        const tMinY = Math.floor(gy(maxLat) / TS);
+        const tMaxY = Math.floor(gy(minLat) / TS);
+        const tiles = {};
+        const promises = [];
+        for (let x = tMinX; x <= tMaxX; x++) {
+          for (let y = tMinY; y <= tMaxY; y++) {
+            const url = `https://tile.openstreetmap.org/${zoom}/${x}/${y}.png`;
+            promises.push(
+              axios.get(url, { responseType: 'arraybuffer', timeout: 10000, headers: { 'User-Agent': 'HydraTransportes/1.0' } })
+                .then(r => { tiles[`${x},${y}`] = Buffer.from(r.data); })
+                .catch(() => {})
+            );
+          }
+        }
+        await Promise.all(promises);
+        if (Object.keys(tiles).length > 0) {
+          for (let x = tMinX; x <= tMaxX; x++) {
+            for (let y = tMinY; y <= tMaxY; y++) {
+              const buf = tiles[`${x},${y}`];
+              if (!buf) continue;
+              const tLng = (x / n) * 360 - 180;
+              const tLat = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI;
+              const tLng2 = ((x + 1) / n) * 360 - 180;
+              const tLat2 = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * 180 / Math.PI;
+              doc.image(buf, projX(tLng), projY(tLat), {
+                width: projX(tLng2) - projX(tLng),
+                height: projY(tLat2) - projY(tLat)
+              });
+            }
+          }
+          mapOk = true;
+        }
       } catch (_) {}
 
-      if (mapImgBuffer) {
-        // Coloca a imagem do mapa como fundo
-        doc.image(mapImgBuffer, LM + pad, y + pad, { width: drawW, height: drawH });
-        // Borda ao redor do mapa
+      if (mapOk) {
         doc.rect(LM + pad, y + pad, drawW, drawH).lineWidth(0.5).stroke('#cccccc');
-        // Rota por cima da imagem
-        const imgProjX = (lng) => LM + pad + (lng - minLng) / (maxLng - minLng) * drawW;
-        const imgProjY = (lat) => y + pad + (maxLat - lat) / (maxLat - minLat) * drawH;
-        doc.strokeColor(corPrin).lineWidth(3).lineJoin('round').lineCap('round');
-        doc.moveTo(imgProjX(coords[0][0]), imgProjY(coords[0][1]));
-        for (let i = 1; i < coords.length; i++) {
-          doc.lineTo(imgProjX(coords[i][0]), imgProjY(coords[i][1]));
-        }
-        doc.stroke();
-        doc.strokeColor('#000000');
-        // Marcadores sobre a imagem
-        const ox = imgProjX(coords[0][0]), oy = imgProjY(coords[0][1]);
-        doc.circle(ox, oy, 6).fillAndStroke('#ffffff', '#000000');
-        doc.fill('#28a745').fontSize(7).font('Helvetica-Bold')
-          .text('ORIGEM', ox + 9, oy - 5);
-        const last = coords[coords.length - 1];
-        const dx = imgProjX(last[0]), dy = imgProjY(last[1]);
-        doc.circle(dx, dy, 6).fillAndStroke('#ffffff', '#000000');
-        doc.fill('#dc3545').fontSize(7).font('Helvetica-Bold')
-          .text('DESTINO', dx + 9, dy - 5);
       } else {
-        // Fallback: fundo cinza + rota
         doc.rect(LM, y, mapW, mapH).fillAndStroke('#f8f9fa', '#dee2e6');
         doc.fill('#000000');
         doc.strokeColor('#e9ecef').lineWidth(0.5);
         for (let i = 0; i <= 4; i++) {
-          const frac = i / 4;
-          const lng2 = minLng + frac * (maxLng - minLng);
-          const lat2 = minLat + frac * (maxLat - minLat);
-          const x = LM + pad + (lng2 - minLng) / (maxLng - minLng) * drawW;
-          const y2 = y + pad + (maxLat - lat2) / (maxLat - minLat) * drawH;
-          doc.moveTo(x, y + pad).lineTo(x, y + mapH - pad).stroke();
-          doc.moveTo(LM + pad, y2).lineTo(LM + mapW - pad, y2).stroke();
+          const f = i / 4;
+          const lng2 = minLng + f * (maxLng - minLng);
+          const lat2 = minLat + f * (maxLat - minLat);
+          doc.moveTo(projX(lng2), y + pad).lineTo(projX(lng2), y + mapH - pad).stroke();
+          doc.moveTo(LM + pad, projY(lat2)).lineTo(LM + mapW - pad, projY(lat2)).stroke();
         }
-        doc.strokeColor('#000000');
-        const projX = (lng) => LM + pad + (lng - minLng) / (maxLng - minLng) * drawW;
-        const projY = (lat) => y + pad + (maxLat - lat) / (maxLat - minLat) * drawH;
-        doc.strokeColor(corPrin).lineWidth(2.5).lineJoin('round').lineCap('round');
-        doc.moveTo(projX(coords[0][0]), projY(coords[0][1]));
-        for (let i = 1; i < coords.length; i++) {
-          doc.lineTo(projX(coords[i][0]), projY(coords[i][1]));
-        }
-        doc.stroke();
-        doc.strokeColor('#000000');
-        const ox = projX(coords[0][0]), oy = projY(coords[0][1]);
-        doc.circle(ox, oy, 5).fillAndStroke('#28a745', '#ffffff');
-        doc.fill('#28a745').fontSize(7).font('Helvetica-Bold')
-          .text('ORIGEM', ox + 8, oy - 5);
-        const last = coords[coords.length - 1];
-        const dx = projX(last[0]), dy = projY(last[1]);
-        doc.circle(dx, dy, 5).fillAndStroke('#dc3545', '#ffffff');
-        doc.fill('#dc3545').fontSize(7).font('Helvetica-Bold')
-          .text('DESTINO', dx + 8, dy - 5);
       }
+
+      // Rota e marcadores (sempre desenha por cima)
+      doc.strokeColor(corPrin).lineWidth(mapOk ? 3 : 2.5).lineJoin('round').lineCap('round');
+      doc.moveTo(projX(coords[0][0]), projY(coords[0][1]));
+      for (let i = 1; i < coords.length; i++) {
+        doc.lineTo(projX(coords[i][0]), projY(coords[i][1]));
+      }
+      doc.stroke();
+      doc.strokeColor('#000000');
+      const ox = projX(coords[0][0]), oy = projY(coords[0][1]);
+      doc.circle(ox, oy, mapOk ? 6 : 5).fillAndStroke('#ffffff', '#000000');
+      doc.fill('#28a745').fontSize(7).font('Helvetica-Bold').text('ORIGEM', ox + (mapOk ? 9 : 8), oy - 5);
+      const last = coords[coords.length - 1];
+      const dx = projX(last[0]), dy = projY(last[1]);
+      doc.circle(dx, dy, mapOk ? 6 : 5).fillAndStroke('#ffffff', '#000000');
+      doc.fill('#dc3545').fontSize(7).font('Helvetica-Bold').text('DESTINO', dx + (mapOk ? 9 : 8), dy - 5);
       doc.fill('#000000');
       y += mapH + 10;
     }
