@@ -161,7 +161,20 @@ exports.comprovante = async (req, res) => {
     const motorista = config?.motorista || {};
     const valores = config?.valores || {};
     const corPrin = config?.personalizacao?.corPrincipal || '#0d6efd';
-    const logoData = motorista.logo || null;
+    let logoData = motorista.logo || null;
+    // Fallback: tenta ler o HydraLogo.png do disco se nao tiver logo no config
+    if (!logoData) {
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const logoPath = path.join(__dirname, '..', '..', '..', 'frontend', 'assets', 'HydraLogo.png');
+        if (fs.existsSync(logoPath)) {
+          const ext = path.extname(logoPath).slice(1);
+          const base64 = fs.readFileSync(logoPath).toString('base64');
+          logoData = `data:image/${ext === 'png' ? 'png' : ext};base64,${base64}`;
+        }
+      } catch (_) {}
+    }
     const nomeMotorista = motorista.nome || 'Motorista';
     const telMotorista = motorista.telefone || '';
     const zapMotorista = motorista.whatsapp || '';
@@ -196,7 +209,7 @@ exports.comprovante = async (req, res) => {
     }
 
     const reciboNum = corrida._id.toString().slice(-8).toUpperCase();
-    doc.fontSize(8).fill('#666666').text(`#${reciboNum}`, LM + pageW - 40, y + 68, { align: 'right' });
+    doc.fontSize(8).fill('#666666').text(`Recibo: #${reciboNum}`, LM + pageW - 90, y + 68, { align: 'right' });
     doc.fill('#000000');
 
     y += 100;
@@ -297,7 +310,7 @@ exports.comprovante = async (req, res) => {
       y += 18;
 
       const coords = corrida.rotaGeoJSON.coordinates;
-      const mapH = 200, mapW = pageW, pad = 25;
+      const mapH = 220, mapW = pageW, pad = 20;
       const drawW = mapW - pad * 2, drawH = mapH - pad * 2;
 
       let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
@@ -322,23 +335,23 @@ exports.comprovante = async (req, res) => {
         return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n * TS;
       };
 
-      // Proporcao real do bounding box em Mercator vs area disponivel
+      // Proporcao real vs area disponivel (com tamanho minimo)
       const mercW = gx(maxLng) - gx(minLng);
       const mercH = gy(minLat) - gy(maxLat);
       const bboxAspect = mercW / mercH;
       const drawAspect = drawW / drawH;
-      let finalW = drawW, finalH = drawH;
-      let xOff = 0, yOff = 0;
+      let tileW = drawW, tileH = drawH;
+      let xOff2 = 0, yOff2 = 0;
       if (bboxAspect > drawAspect) {
-        finalH = drawW / bboxAspect;
-        yOff = (drawH - finalH) / 2;
+        tileH = Math.max(drawH * 0.6, drawW / bboxAspect);
+        yOff2 = (drawH - tileH) / 2;
       } else {
-        finalW = drawH * bboxAspect;
-        xOff = (drawW - finalW) / 2;
+        tileW = Math.max(drawW * 0.4, drawH * bboxAspect);
+        xOff2 = (drawW - tileW) / 2;
       }
 
-      const projX = (lng) => LM + pad + xOff + (gx(lng) - gx(minLng)) / mercW * finalW;
-      const projY = (lat) => y + pad + yOff + (gy(maxLat) - gy(lat)) / mercH * finalH;
+      const projX = (lng) => LM + pad + xOff2 + (gx(lng) - gx(minLng)) / mercW * tileW;
+      const projY = (lat) => y + pad + yOff2 + (gy(maxLat) - gy(lat)) / mercH * tileH;
 
       // Tenta baixar tiles OSM
       let mapOk = false;
@@ -380,22 +393,15 @@ exports.comprovante = async (req, res) => {
         }
       } catch (_) {}
 
+      // Fundo / borda
+      const bgLeft = LM + pad + xOff2, bgTop = y + pad + yOff2;
       if (mapOk) {
-        doc.rect(LM + pad + xOff, y + pad + yOff, finalW, finalH).lineWidth(0.5).stroke('#cccccc');
+        doc.rect(bgLeft, bgTop, tileW, tileH).lineWidth(0.5).stroke('#cccccc');
       } else {
-        doc.rect(LM + pad + xOff, y + pad + yOff, finalW, finalH).fillAndStroke('#f8f9fa', '#dee2e6');
-        doc.fill('#000000');
-        doc.strokeColor('#e9ecef').lineWidth(0.5);
-        for (let i = 0; i <= 4; i++) {
-          const f = i / 4;
-          const lng2 = minLng + f * (maxLng - minLng);
-          const lat2 = minLat + f * (maxLat - minLat);
-          doc.moveTo(projX(lng2), y + pad + yOff).lineTo(projX(lng2), y + pad + yOff + finalH).stroke();
-          doc.moveTo(LM + pad + xOff, projY(lat2)).lineTo(LM + pad + xOff + finalW, projY(lat2)).stroke();
-        }
+        doc.rect(bgLeft, bgTop, tileW, tileH).fillAndStroke('#f8f9fa', '#dee2e6');
       }
 
-      // Rota e marcadores (sempre desenha por cima)
+      // Rota e marcadores
       doc.strokeColor(corPrin).lineWidth(mapOk ? 3 : 2.5).lineJoin('round').lineCap('round');
       doc.moveTo(projX(coords[0][0]), projY(coords[0][1]));
       for (let i = 1; i < coords.length; i++) {
@@ -411,7 +417,8 @@ exports.comprovante = async (req, res) => {
       doc.circle(dx, dy, mapOk ? 6 : 5).fillAndStroke('#ffffff', '#000000');
       doc.fill('#dc3545').fontSize(7).font('Helvetica-Bold').text('DESTINO', dx + (mapOk ? 9 : 8), dy - 5);
       doc.fill('#000000');
-      y += pad * 2 + finalH + 10;
+
+      y += mapH + 10; // mantem espaco do rodape consistente
     }
 
     // FOOTER
