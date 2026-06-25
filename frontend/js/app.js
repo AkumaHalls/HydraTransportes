@@ -943,7 +943,7 @@ async function saveConfig() {
       whatsapp: document.getElementById('cfgWhatsapp').value,
       cidade: document.getElementById('cfgCidade').value,
       estado: document.getElementById('cfgEstado').value,
-      logo: document.getElementById('cfgLogoPreview').src || ''
+      logo: document.getElementById('cfgLogoPreview').src.startsWith('data:') ? document.getElementById('cfgLogoPreview').src : configCache?.motorista?.logo || ''
     },
     personalizacao: {
       corPrincipal: document.getElementById('cfgCor').value,
@@ -973,7 +973,7 @@ async function saveConfig() {
   try {
     await loadConfig();
     if (configCache?.personalizacao?.tema === 'dark') document.body.classList.add('dark-mode');
-    if (configCache?.motorista?.logo) {
+    if (configCache?.motorista?.logo?.startsWith('data:')) {
       const logoEl = document.getElementById('sidebarLogo');
       if (logoEl) logoEl.src = configCache.motorista.logo;
     }
