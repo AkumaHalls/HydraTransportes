@@ -4,7 +4,7 @@ const axios = require('axios');
 
 exports.calcular = async (req, res) => {
   try {
-    const { origem, destino, idaEVolta, pedagio, espera, ajudante, acrescimos, descontos, cliente, servico, clienteId, servicoId, observacoes } = req.body;
+    const { origem, destino, idaEVolta, pedagio, espera, ajudante, acrescimos, descontos, cliente, servico, clienteId, servicoId, observacoes, paradas } = req.body;
 
     const config = await Config.findOne();
     const valores = config ? config.valores : {};
@@ -19,7 +19,31 @@ exports.calcular = async (req, res) => {
     const origCoords = await geocode(origem);
     const destCoords = await geocode(destino);
 
-    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${origCoords.lng},${origCoords.lat};${destCoords.lng},${destCoords.lat}?overview=full&geometries=geojson`;
+    // Geocode paradas
+    const paradasCoords = [];
+    const paradasValidas = [];
+    if (paradas && Array.isArray(paradas) && paradas.length > 0) {
+      for (const p of paradas) {
+        if (!p.endereco || !p.endereco.trim()) continue;
+        const coords = await geocode(p.endereco);
+        paradasCoords.push(coords);
+        paradasValidas.push({
+          endereco: p.endereco,
+          lat: coords.lat,
+          lng: coords.lng,
+          valorParada: parseFloat(p.valorParada) || 0
+        });
+      }
+    }
+
+    // Montar waypoints para OSRM: origem;parada1;parada2;...;destino
+    const waypoints = [`${origCoords.lng},${origCoords.lat}`];
+    for (const pc of paradasCoords) {
+      waypoints.push(`${pc.lng},${pc.lat}`);
+    }
+    waypoints.push(`${destCoords.lng},${destCoords.lat}`);
+
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${waypoints.join(';')}?overview=full&geometries=geojson&steps=true`;
     const { data: routeData } = await axios.get(osrmUrl);
 
     if (!routeData.routes || !routeData.routes.length) {
@@ -37,13 +61,18 @@ exports.calcular = async (req, res) => {
 
     const valorPorKm = valores.valorPorKm || 2.5;
     const taxaFixa = valores.taxaFixa || 10;
+    const taxaPorParada = valores.taxaPorParada || 8;
     const valPedagio = parseFloat(pedagio) || 0;
     const valEspera = parseFloat(espera) || 0;
     const valAjudante = parseFloat(ajudante) || 0;
     const valAcrescimos = parseFloat(acrescimos) || 0;
     const valDescontos = parseFloat(descontos) || 0;
 
-    const valorTotal = (distanciaFinal * valorPorKm) + taxaFixa + valPedagio + valEspera + valAjudante + valAcrescimos - valDescontos;
+    // Calcular valor das paradas
+    const totalParadas = paradasValidas.length;
+    const valorParadas = totalParadas > 0 ? totalParadas * taxaPorParada : 0;
+
+    const valorTotal = (distanciaFinal * valorPorKm) + taxaFixa + valPedagio + valEspera + valAjudante + valAcrescimos + valorParadas - valDescontos;
 
     const corrida = await Corrida.create({
       cliente: cliente || '',
@@ -68,12 +97,16 @@ exports.calcular = async (req, res) => {
       descontos: valDescontos,
       valorTotal: Math.round(valorTotal * 100) / 100,
       observacoes: observacoes || '',
-      rotaGeoJSON: route.geometry
+      rotaGeoJSON: route.geometry,
+      paradas: paradasValidas,
+      totalParadas,
+      taxaPorParada
     });
 
     res.json({
       ...corrida.toObject(),
       distanciaFinal: Math.round(distanciaFinal * 100) / 100,
+      valorParadas: Math.round(valorParadas * 100) / 100,
       config: config
     });
   } catch (err) {

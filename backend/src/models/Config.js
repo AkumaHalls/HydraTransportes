@@ -17,10 +17,12 @@ const configSchema = new mongoose.Schema({
     valorPorKm: { type: Number, default: 2.50 },
     taxaMinima: { type: Number, default: 15.00 },
     taxaFixa: { type: Number, default: 10.00 },
-    valorEsperaMinuto: { type: Number, default: 0.50 },
+    valorEsperaMinuto: { type: Number, default: 1.00 },
     valorAjudante: { type: Number, default: 30.00 },
-    valorPadraoPedagio: { type: Number, default: 5.00 }
-  }
+    valorPadraoPedagio: { type: Number, default: 5.00 },
+    taxaPorParada: { type: Number, default: 8.00 }
+  },
+  motoristaId: { type: mongoose.Schema.Types.ObjectId, ref: 'Driver', default: null }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Config', configSchema, 'configs');

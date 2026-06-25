@@ -23,7 +23,15 @@ const corridaSchema = new mongoose.Schema({
   descontos: { type: Number, default: 0 },
   valorTotal: { type: Number, default: 0 },
   observacoes: { type: String, default: '' },
-  rotaGeoJSON: { type: Object, default: null }
+  rotaGeoJSON: { type: Object, default: null },
+  paradas: [{
+    endereco: { type: String },
+    lat: { type: Number },
+    lng: { type: Number },
+    valorParada: { type: Number, default: 0 }
+  }],
+  totalParadas: { type: Number, default: 0 },
+  taxaPorParada: { type: Number, default: 0 }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Corrida', corridaSchema, 'corridas');

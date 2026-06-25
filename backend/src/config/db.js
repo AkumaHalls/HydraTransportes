@@ -11,7 +11,7 @@ async function createCollections() {
   const collections = await db.listCollections().toArray();
   const names = collections.map(c => c.name);
 
-  const needed = ['configs', 'clients', 'services', 'corridas'];
+  const needed = ['configs', 'clients', 'services', 'corridas', 'drivers'];
   for (const name of needed) {
     if (!names.includes(name)) {
       await db.createCollection(name);

@@ -39,6 +39,7 @@ app.use(express.static(path.join(__dirname, '..', 'frontend')));
 app.use('/api/config', require('./src/routes/config'));
 app.use('/api/clients', require('./src/routes/clients'));
 app.use('/api/services', require('./src/routes/services'));
+app.use('/api/drivers', require('./src/routes/drivers'));
 app.use('/api/corridas', require('./src/routes/corridas'));
 app.use('/api/export', require('./src/routes/export'));
 

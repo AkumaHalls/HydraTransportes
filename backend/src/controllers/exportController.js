@@ -19,10 +19,12 @@ exports.csv = async (req, res) => {
       Servico: c.servico,
       Origem: c.origem,
       Destino: c.destino,
+      Paradas: c.totalParadas > 0 ? (c.paradas || []).map(p => p.endereco).join('; ') : '',
       Distancia_KM: c.distanciaKm,
       Tempo: c.tempoEstimado,
       Valor_Por_KM: c.valorPorKm,
       Taxa_Fixa: c.taxaFixa,
+      Taxa_Paradas: c.totalParadas > 0 ? (c.totalParadas * (c.taxaPorParada || 0)) : 0,
       Pedagio: c.pedagio,
       Espera: c.espera,
       Ajudante: c.ajudante,
@@ -63,6 +65,7 @@ exports.excel = async (req, res) => {
       { header: 'Servico', key: 'servico' },
       { header: 'Origem', key: 'origem' },
       { header: 'Destino', key: 'destino' },
+      { header: 'Paradas', key: 'paradas' },
       { header: 'Distancia (KM)', key: 'distanciaKm' },
       { header: 'Tempo', key: 'tempoEstimado' },
       { header: 'Valor/KM', key: 'valorPorKm' },
@@ -82,6 +85,7 @@ exports.excel = async (req, res) => {
         servico: c.servico,
         origem: c.origem,
         destino: c.destino,
+        paradas: c.totalParadas > 0 ? (c.paradas || []).map(p => p.endereco).join('; ') : '',
         distanciaKm: c.distanciaKm,
         tempoEstimado: c.tempoEstimado,
         valorPorKm: c.valorPorKm,
@@ -247,6 +251,13 @@ exports.comprovante = async (req, res) => {
     linha('Origem:', corrida.origem);
     linha('Destino:', corrida.destino);
 
+    if (corrida.paradas && corrida.paradas.length > 0) {
+      corrida.paradas.forEach((p, i) => {
+        linha(`Parada ${i + 1}:`, p.endereco);
+      });
+      y += 2;
+    }
+
     y += 8;
     doc.moveTo(LM, y).lineTo(LM + pageW, y).stroke('#dddddd');
 
@@ -263,6 +274,7 @@ exports.comprovante = async (req, res) => {
     const acre = corrida.acrescimos || 0;
     const desc = corrida.descontos || 0;
     const dist = corrida.distanciaKm || 0;
+    const distFinal = corrida.idaEVolta ? dist * 2 : dist;
     const total = corrida.valorTotal || 0;
 
     const linhaValor = (label, value, highlight) => {
@@ -273,13 +285,21 @@ exports.comprovante = async (req, res) => {
       y += rH;
     };
 
-    linhaValor('Distancia:', `${dist} km`);
+    if (corrida.idaEVolta) {
+      linhaValor('Distancia (ida):', `${dist} km`);
+      linhaValor('Distancia (volta):', `${dist} km`);
+      linhaValor('Distancia total (ida e volta):', `${distFinal} km`);
+    } else {
+      linhaValor('Distancia:', `${dist} km`);
+    }
     linhaValor('Tempo estimado:', corrida.tempoEstimado || '-');
     linhaValor('Valor por km:', `R$ ${vkm.toFixed(2)}`);
     if (tf > 0) linhaValor('Taxa Fixa:', `R$ ${tf.toFixed(2)}`);
     if (ped > 0) linhaValor('Pedagio:', `R$ ${ped.toFixed(2)}`);
     if (esp > 0) linhaValor('Espera:', `R$ ${esp.toFixed(2)}`);
     if (ajud > 0) linhaValor('Ajudante:', `R$ ${ajud.toFixed(2)}`);
+    const valParadas = (corrida.totalParadas || 0) * (corrida.taxaPorParada || 0);
+    if (valParadas > 0) linhaValor(`Paradas (${corrida.totalParadas}x):`, `R$ ${valParadas.toFixed(2)}`);
     if (acre > 0) linhaValor('Acrescimos:', `R$ ${acre.toFixed(2)}`);
     if (desc > 0) linhaValor('Descontos:', `- R$ ${desc.toFixed(2)}`);
     y += 4;
@@ -427,6 +447,17 @@ exports.comprovante = async (req, res) => {
       doc.circle(dx, dy, mapOk ? 6 : 5).fillAndStroke('#ffffff', '#000000');
       doc.fill('#dc3545').fontSize(7).font('Helvetica-Bold').text('DESTINO', dx + (mapOk ? 9 : 8), dy - 5);
       doc.fill('#000000');
+
+      // Paradas markers
+      if (corrida.paradas && corrida.paradas.length > 0) {
+        corrida.paradas.forEach((p, i) => {
+          if (!p.lat || !p.lng) return;
+          const px = projX(p.lng), py = projY(p.lat);
+          doc.circle(px, py, mapOk ? 5 : 4).fillAndStroke('#ffc107', '#000000');
+          doc.fill('#000000').fontSize(6).font('Helvetica-Bold').text(`P${i + 1}`, px + (mapOk ? 8 : 7), py - 4);
+          doc.fill('#000000');
+        });
+      }
     }
 
     // FOOTER

@@ -83,6 +83,7 @@ function navigateTo(page) {
     historico: renderHistorico,
     clientes: renderClientes,
     servicos: renderServicos,
+    motoristas: renderMotoristas,
     config: renderConfig
   };
   if (pages[page]) pages[page]();
@@ -224,6 +225,16 @@ async function renderCorridas() {
               <label class="form-check-label">Ida e Volta</label>
             </div>
           </div>
+          <div class="col-md-6">
+            <label class="form-label">Taxa por Parada (R$) <small class="text-muted">(config)</small></label>
+            <input class="form-control" id="corridaTaxaParada" type="number" step="0.01" value="${config.valores?.taxaPorParada || 8}" readonly>
+          </div>
+        </div>
+        <hr>
+        <div class="mb-3">
+          <label class="form-label fw-bold">Paradas <button class="btn btn-sm btn-outline-success ms-2" type="button" id="addParada"><i class="bi bi-plus-circle"></i> Adicionar Parada</button></label>
+          <div id="paradasContainer"></div>
+          <small class="text-muted">Adicione paradas intermediárias entre origem e destino. Cada parada será cobrada conforme a taxa configurada.</small>
         </div>
         <hr>
         <div class="row g-3">
@@ -274,6 +285,10 @@ async function renderCorridas() {
       if (e.target.value.length < 5) { document.getElementById('destinoMap').style.display = 'none'; document.getElementById('destinoPreview').innerHTML = ''; return; }
       destTimeout = setTimeout(() => previewAddress(e.target.value, 'destino'), 1000);
     });
+
+    document.getElementById('addParada').addEventListener('click', () => {
+      addParadaField();
+    });
   } catch (err) {
     el.innerHTML = `<div class="alert alert-danger">${escapeHtml(err.message)}</div>`;
   }
@@ -309,6 +324,26 @@ async function previewAddress(address, type) {
   }
 }
 
+let paradaIndex = 0;
+
+function addParadaField(endereco) {
+  const container = document.getElementById('paradasContainer');
+  const idx = paradaIndex++;
+  const div = document.createElement('div');
+  div.className = 'input-group mb-2 parada-row';
+  div.id = `paradaRow_${idx}`;
+  div.innerHTML = `
+    <input type="text" class="form-control parada-endereco" id="paradaEndereco_${idx}" placeholder="Endereço da parada ${idx + 1}" value="${escapeHtml(endereco || '')}">
+    <button class="btn btn-outline-danger" type="button" onclick="removerParada(${idx})"><i class="bi bi-x-circle"></i></button>
+  `;
+  container.appendChild(div);
+}
+
+function removerParada(idx) {
+  const row = document.getElementById(`paradaRow_${idx}`);
+  if (row) row.remove();
+}
+
 let ultimaCorrida = null;
 
 async function calcularCorrida() {
@@ -325,8 +360,17 @@ async function calcularCorrida() {
     ajudante: parseFloat(document.getElementById('corridaAjudante').value) || 0,
     acrescimos: parseFloat(document.getElementById('corridaAcrescimos').value) || 0,
     descontos: parseFloat(document.getElementById('corridaDescontos').value) || 0,
-    observacoes: document.getElementById('corridaObs').value
+    observacoes: document.getElementById('corridaObs').value,
+    paradas: []
   };
+
+  // Coletar paradas
+  document.querySelectorAll('.parada-row').forEach(row => {
+    const input = row.querySelector('.parada-endereco');
+    if (input && input.value.trim()) {
+      data.paradas.push({ endereco: input.value.trim(), valorParada: 0 });
+    }
+  });
 
   if (!data.origem || !data.destino) {
     showToast('Preencha origem e destino', 'warning');
@@ -346,14 +390,20 @@ async function calcularCorrida() {
       <div class="card p-3 mt-3">
         <h5><i class="bi bi-check-circle" style="color:${cor}"></i> Resultado do Cálculo</h5>
         <div class="result-box">
-          <div class="result-item"><span>Distância</span><strong>${result.distanciaKm} km</strong></div>
-          <div class="result-item"><span>Distância Final${result.idaEVolta ? ' (ida e volta)' : ''}</span><strong>${distFinal} km</strong></div>
+          ${result.idaEVolta ? `
+            <div class="result-item"><span>Distância (ida)</span><strong>${result.distanciaKm} km</strong></div>
+            <div class="result-item"><span>Distância (volta)</span><strong>${result.distanciaKm} km</strong></div>
+            <div class="result-item"><span>Distância total (ida e volta)</span><strong>${distFinal} km</strong></div>
+          ` : `
+            <div class="result-item"><span>Distância</span><strong>${result.distanciaKm} km</strong></div>
+          `}
           <div class="result-item"><span>Tempo Estimado</span><strong>${result.tempoEstimado}</strong></div>
           <div class="result-item"><span>Valor por km</span><strong>${formatMoney(result.valorPorKm)}</strong></div>
           <div class="result-item"><span>Taxa Fixa</span><strong>${formatMoney(result.taxaFixa)}</strong></div>
           ${result.pedagio > 0 ? `<div class="result-item"><span>Pedágio</span><strong>${formatMoney(result.pedagio)}</strong></div>` : ''}
           ${result.espera > 0 ? `<div class="result-item"><span>Espera</span><strong>${formatMoney(result.espera)}</strong></div>` : ''}
           ${result.ajudante > 0 ? `<div class="result-item"><span>Ajudante</span><strong>${formatMoney(result.ajudante)}</strong></div>` : ''}
+          ${result.totalParadas > 0 ? `<div class="result-item"><span>Paradas (${result.totalParadas}x R$ ${(result.taxaPorParada || 0).toFixed(2)})</span><strong>${formatMoney(result.totalParadas * (result.taxaPorParada || 0))}</strong></div>` : ''}
           ${result.acrescimos > 0 ? `<div class="result-item"><span>Acréscimos</span><strong>${formatMoney(result.acrescimos)}</strong></div>` : ''}
           ${result.descontos > 0 ? `<div class="result-item"><span>Descontos</span><strong>-${formatMoney(result.descontos)}</strong></div>` : ''}
           <div class="result-item total"><span>Valor Total</span><strong>${formatMoney(result.valorTotal)}</strong></div>
@@ -408,6 +458,17 @@ function initResultMap(result) {
 
   L.marker([result.origemLat, result.origemLng]).addTo(map).bindPopup('Origem');
   L.marker([result.destinoLat, result.destinoLng]).addTo(map).bindPopup('Destino');
+
+  // Paradas markers
+  if (result.paradas && result.paradas.length > 0) {
+    result.paradas.forEach((p, i) => {
+      if (p.lat && p.lng) {
+        L.marker([p.lat, p.lng], {
+          icon: L.divIcon({ className: 'parada-marker', html: `<div style="background:#ffc107;color:#000;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px;border:2px solid #fff">${i + 1}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] })
+        }).addTo(map).bindPopup(`Parada ${i + 1}: ${escapeHtml(p.endereco)}`);
+      }
+    });
+  }
 
   const bounds = L.geoJSON(result.rotaGeoJSON).getBounds();
   if (bounds.isValid()) map.fitBounds(bounds, { padding: [30, 30] });
@@ -859,6 +920,130 @@ async function saveServico() {
   }
 }
 
+// ====== MOTORISTAS ======
+async function renderMotoristas() {
+  const el = document.getElementById('pageContent');
+  el.innerHTML = `
+    <h4 class="page-title"><i class="bi bi-person-badge"></i> Motoristas</h4>
+    <div class="card p-3">
+      <div class="d-flex justify-content-end mb-3">
+        <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#motoristaModal"><i class="bi bi-plus"></i> Novo Motorista</button>
+      </div>
+      <div id="motoristasList"></div>
+    </div>
+    <div class="modal fade" id="motoristaModal" tabindex="-1">
+      <div class="modal-dialog"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title" id="motoristaModalTitle">Novo Motorista</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <input type="hidden" id="motoristaId">
+          <div class="mb-2"><label class="form-label">Nome</label><input class="form-control" id="motoristaNome"></div>
+          <div class="mb-2"><label class="form-label">Telefone</label><input class="form-control" id="motoristaTelefone"></div>
+          <div class="mb-2"><label class="form-label">WhatsApp</label><input class="form-control" id="motoristaWhatsapp"></div>
+          <div class="mb-2"><label class="form-label">Cidade</label><input class="form-control" id="motoristaCidade"></div>
+          <div class="mb-2"><label class="form-label">Estado</label><input class="form-control" id="motoristaEstado"></div>
+          <div class="mb-2"><label class="form-label">Ativo</label>
+            <select class="form-select" id="motoristaAtivo">
+              <option value="true">Sim</option>
+              <option value="false">Não</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary" id="motoristaSave">Salvar</button>
+        </div>
+      </div></div>
+    </div>
+  `;
+
+  document.getElementById('motoristaSave').addEventListener('click', saveMotorista);
+  loadMotoristas();
+}
+
+async function loadMotoristas() {
+  const el = document.getElementById('motoristasList');
+  showLoading(true);
+  try {
+    const drivers = await api('GET', '/drivers');
+    if (!drivers.length) {
+      el.innerHTML = '<div class="empty-state"><i class="bi bi-person-badge"></i><p>Nenhum motorista cadastrado</p></div>';
+      return;
+    }
+    el.innerHTML = `<div class="table-responsive"><table class="table table-sm">
+      <thead><tr><th>Nome</th><th>Telefone</th><th>Cidade</th><th>Ativo</th><th>Ações</th></tr></thead><tbody>
+      ${drivers.map(d => `<tr>
+        <td>${escapeHtml(d.nome)}</td>
+        <td>${escapeHtml(d.telefone || '-')}</td>
+        <td>${escapeHtml(d.cidade || '-')}</td>
+        <td>${d.ativo ? '<span class="badge bg-success">Sim</span>' : '<span class="badge bg-secondary">Não</span>'}</td>
+        <td class="table-actions">
+          <button class="btn btn-sm btn-outline-warning" onclick="editMotorista('${d._id}')"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteMotorista('${d._id}')"><i class="bi bi-trash"></i></button>
+        </td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+  } catch (err) {
+    el.innerHTML = `<div class="alert alert-danger">${escapeHtml(err.message)}</div>`;
+  } finally {
+    showLoading(false);
+  }
+}
+
+function openMotoristaModal(driver = null) {
+  document.getElementById('motoristaId').value = driver?._id || '';
+  document.getElementById('motoristaNome').value = driver?.nome || '';
+  document.getElementById('motoristaTelefone').value = driver?.telefone || '';
+  document.getElementById('motoristaWhatsapp').value = driver?.whatsapp || '';
+  document.getElementById('motoristaCidade').value = driver?.cidade || '';
+  document.getElementById('motoristaEstado').value = driver?.estado || '';
+  document.getElementById('motoristaAtivo').value = driver?.ativo !== false ? 'true' : 'false';
+  document.getElementById('motoristaModalTitle').textContent = driver ? 'Editar Motorista' : 'Novo Motorista';
+  new bootstrap.Modal(document.getElementById('motoristaModal')).show();
+}
+
+async function editMotorista(id) {
+  const d = await api('GET', `/drivers/${id}`);
+  openMotoristaModal(d);
+}
+
+async function deleteMotorista(id) {
+  if (!confirm('Excluir este motorista?')) return;
+  try {
+    await api('DELETE', `/drivers/${id}`);
+    showToast('Motorista excluído');
+    loadMotoristas();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function saveMotorista() {
+  const data = {
+    nome: document.getElementById('motoristaNome').value,
+    telefone: document.getElementById('motoristaTelefone').value,
+    whatsapp: document.getElementById('motoristaWhatsapp').value,
+    cidade: document.getElementById('motoristaCidade').value,
+    estado: document.getElementById('motoristaEstado').value,
+    ativo: document.getElementById('motoristaAtivo').value === 'true'
+  };
+  if (!data.nome) { showToast('Nome é obrigatório', 'warning'); return; }
+
+  const id = document.getElementById('motoristaId').value;
+  try {
+    if (id) {
+      await api('PUT', `/drivers/${id}`, data);
+      showToast('Motorista atualizado');
+    } else {
+      await api('POST', '/drivers', data);
+      showToast('Motorista criado');
+    }
+    bootstrap.Modal.getInstance(document.getElementById('motoristaModal')).hide();
+    loadMotoristas();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
 // ====== CONFIGURAÇÕES ======
 async function renderConfig() {
   const el = document.getElementById('pageContent');
@@ -904,9 +1089,21 @@ async function renderConfig() {
           <div class="col-md-4"><label class="form-label">Valor por KM (R$)</label><input class="form-control" id="cfgValorKm" type="number" step="0.01" value="${config.valores?.valorPorKm || 2.5}"></div>
           <div class="col-md-4"><label class="form-label">Taxa Mínima (R$)</label><input class="form-control" id="cfgTaxaMin" type="number" step="0.01" value="${config.valores?.taxaMinima || 15}"></div>
           <div class="col-md-4"><label class="form-label">Taxa Fixa (R$)</label><input class="form-control" id="cfgTaxaFixa" type="number" step="0.01" value="${config.valores?.taxaFixa || 10}"></div>
-          <div class="col-md-4"><label class="form-label">Espera por Minuto (R$)</label><input class="form-control" id="cfgEsperaMin" type="number" step="0.01" value="${config.valores?.valorEsperaMinuto || 0.5}"></div>
+          <div class="col-md-4"><label class="form-label">Espera por Minuto (R$)</label><input class="form-control" id="cfgEsperaMin" type="number" step="0.01" value="${config.valores?.valorEsperaMinuto || 1}"></div>
           <div class="col-md-4"><label class="form-label">Valor Ajudante (R$)</label><input class="form-control" id="cfgValorAjudante" type="number" step="0.01" value="${config.valores?.valorAjudante || 30}"></div>
           <div class="col-md-4"><label class="form-label">Pedágio Padrão (R$)</label><input class="form-control" id="cfgPedagio" type="number" step="0.01" value="${config.valores?.valorPadraoPedagio || 5}"></div>
+          <div class="col-md-4"><label class="form-label">Taxa por Parada (R$)</label><input class="form-control" id="cfgTaxaParada" type="number" step="0.01" value="${config.valores?.taxaPorParada || 8}"></div>
+        </div>
+      </div>
+      <div class="card p-3 mb-3">
+        <h5>Motorista Principal</h5>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Selecionar Motorista</label>
+            <select class="form-select" id="cfgMotoristaPrincipal">
+              <option value="">Nenhum</option>
+            </select>
+          </div>
         </div>
       </div>
       <button class="btn btn-primary btn-lg w-100" id="cfgSave"><i class="bi bi-save"></i> Salvar Configurações</button>
@@ -928,6 +1125,19 @@ async function renderConfig() {
     });
 
     if (config.personalizacao?.tema === 'dark') document.body.classList.add('dark-mode');
+
+    // Carregar motoristas no dropdown
+    try {
+      const drivers = await api('GET', '/drivers');
+      const sel = document.getElementById('cfgMotoristaPrincipal');
+      drivers.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d._id;
+        opt.textContent = `${d.nome}${d.ativo ? '' : ' (inativo)'}`;
+        if (config.motoristaId && config.motoristaId.toString() === d._id) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    } catch (_) {}
 
     document.getElementById('cfgSave').addEventListener('click', saveConfig);
   } catch (err) {
@@ -955,8 +1165,10 @@ async function saveConfig() {
       taxaFixa: parseFloat(document.getElementById('cfgTaxaFixa').value) || 0,
       valorEsperaMinuto: parseFloat(document.getElementById('cfgEsperaMin').value) || 0,
       valorAjudante: parseFloat(document.getElementById('cfgValorAjudante').value) || 0,
-      valorPadraoPedagio: parseFloat(document.getElementById('cfgPedagio').value) || 0
-    }
+      valorPadraoPedagio: parseFloat(document.getElementById('cfgPedagio').value) || 0,
+      taxaPorParada: parseFloat(document.getElementById('cfgTaxaParada').value) || 0
+    },
+    motoristaId: document.getElementById('cfgMotoristaPrincipal').value || null
   };
 
   try {

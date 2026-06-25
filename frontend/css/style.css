@@ -296,6 +296,15 @@ body {
   display: block;
 }
 
+.parada-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.parada-row .form-control {
+  border-right: none;
+}
+
 .toast-container {
   position: fixed;
   top: 20px;
