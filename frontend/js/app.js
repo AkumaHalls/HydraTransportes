@@ -361,9 +361,19 @@ async function calcularCorrida() {
         <div class="mt-3">
           <div id="resultMap" class="map-container mb-3"></div>
         </div>
+        <div class="mt-2 mb-2">
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="tipoPdf" id="tipoComprovante" value="comprovante" checked>
+            <label class="form-check-label" for="tipoComprovante">Comprovante</label>
+          </div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="tipoPdf" id="tipoOrcamento" value="orcamento">
+            <label class="form-check-label" for="tipoOrcamento">Orçamento</label>
+          </div>
+        </div>
         <div class="d-grid gap-2 d-md-flex">
           <button class="btn btn-outline-primary flex-fill" onclick="visualizarComprovante('${result._id}')">
-            <i class="bi bi-eye"></i> Comprovante
+            <i class="bi bi-eye"></i> Visualizar
           </button>
           <button class="btn btn-primary flex-fill" onclick="baixarPDF('${result._id}')">
             <i class="bi bi-filetype-pdf"></i> Baixar PDF
@@ -404,13 +414,15 @@ function initResultMap(result) {
 }
 
 function visualizarComprovante(id) {
-  window.open(`/api/export/comprovante/${id}`, '_blank');
+  const tipo = document.querySelector('input[name="tipoPdf"]:checked')?.value || 'comprovante';
+  window.open(`/api/export/comprovante/${id}?tipo=${tipo}`, '_blank');
 }
 
 function baixarPDF(id) {
+  const tipo = document.querySelector('input[name="tipoPdf"]:checked')?.value || 'comprovante';
   const a = document.createElement('a');
-  a.href = `/api/export/comprovante/${id}`;
-  a.download = `comprovante_${id}.pdf`;
+  a.href = `/api/export/comprovante/${id}?tipo=${tipo}`;
+  a.download = `${tipo}_${id}.pdf`;
   a.click();
 }
 

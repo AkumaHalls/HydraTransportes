@@ -153,6 +153,8 @@ exports.comprovante = async (req, res) => {
     const corrida = await Corrida.findById(req.params.id);
     if (!corrida) return res.status(404).json({ error: 'Corrida not found' });
 
+    const tipo = req.query.tipo || 'comprovante';
+
     const Config = require('../models/Config');
     const config = await Config.findOne();
 
@@ -166,97 +168,77 @@ exports.comprovante = async (req, res) => {
     const cidadeMotorista = motorista.cidade || '';
     const estadoMotorista = motorista.estado || '';
 
-    const doc = new PDFDocument({ margin: 30, size: 'A4' });
+    const doc = new PDFDocument({ margin: 35, size: 'A4' });
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=comprovante_${corrida._id}.pdf`);
+    res.setHeader('Content-Disposition', `attachment; filename=${tipo}_${corrida._id}.pdf`);
     doc.pipe(res);
 
-    const pageW = doc.page.width - 60;
-    const leftMargin = 30;
-    const rightMargin = doc.page.width - 30;
+    const LM = 35;
+    const pageW = doc.page.width - LM * 2;
+    let y = 25;
 
-    // Bordas externas
-    doc.rect(leftMargin, 20, pageW, doc.page.height - 50).lineWidth(1).stroke('#cccccc');
-
-    // HEADER - fundo colorido
-    doc.rect(leftMargin, 20, pageW, 100).fill(corPrin);
-    doc.fill('#ffffff').fontSize(22).font('Helvetica-Bold')
-      .text('HYDRA TRANSPORTES URGENTES', leftMargin + 15, 35, { align: 'center' });
-    doc.fontSize(10).font('Helvetica')
-      .text('COMPROVANTE DE SERVICO', leftMargin + 15, 60, { align: 'center' });
+    // HEADER
+    doc.rect(LM, y, pageW, 85).fill(corPrin);
+    doc.fill('#ffffff').fontSize(20).font('Helvetica-Bold')
+      .text('HYDRA TRANSPORTES URGENTES', LM + 15, y + 15, { align: 'center' });
+    doc.fontSize(11).font('Helvetica')
+      .text(tipo === 'orcamento' ? 'ORCAMENTO' : 'COMPROVANTE DE SERVICO', LM + 15, y + 42, { align: 'center' });
     if (cidadeMotorista && estadoMotorista) {
-      doc.fontSize(8).text(`${cidadeMotorista} - ${estadoMotorista}`, leftMargin + 15, 78, { align: 'center' });
+      doc.fontSize(8).text(`${cidadeMotorista} - ${estadoMotorista}`, LM + 15, y + 60, { align: 'center' });
     }
     doc.fill('#000000');
 
-    // Logo no header
     if (logoData) {
       try {
         const raw = logoData.replace(/^data:image\/[a-z]+;base64,/, '');
-        doc.image(Buffer.from(raw, 'base64'), rightMargin - 115, 28, { fit: [70, 70], align: 'right' });
+        doc.image(Buffer.from(raw, 'base64'), LM + pageW - 90, y + 8, { fit: [75, 70] });
       } catch (e) {}
     }
 
-    // Número recibo
     const reciboNum = corrida._id.toString().slice(-8).toUpperCase();
-    doc.fontSize(9).fill('#666666').text(`Recibo: #${reciboNum}`, leftMargin + 15, 95, { align: 'right' }).fill('#000000');
+    doc.fontSize(8).fill('#666666').text(`#${reciboNum}`, LM + pageW - 40, y + 68, { align: 'right' });
+    doc.fill('#000000');
 
-    // Dados do motorista
-    let y = 138;
-    doc.fontSize(10).font('Helvetica-Bold').text('MOTORISTA', leftMargin + 15, y);
-    y += 16;
-    doc.fontSize(9).font('Helvetica').text(`Nome: ${nomeMotorista}`, leftMargin + 15, y);
-    doc.text(`Tel: ${telMotorista}`, leftMargin + 160, y);
+    y += 100;
+
+    // MOTORISTA
+    doc.fontSize(8).fill('#888888').text('MOTORISTA', LM, y);
+    y += 12;
+    doc.fontSize(10).font('Helvetica-Bold').text(nomeMotorista, LM, y);
+    const motoristaInfo = [telMotorista, zapMotorista, [cidadeMotorista, estadoMotorista].filter(Boolean).join(' - ')].filter(Boolean).join('  |  ');
     y += 14;
-    if (zapMotorista) doc.text(`WhatsApp: ${zapMotorista}`, leftMargin + 15, y);
+    doc.fontSize(8).font('Helvetica').fill('#555555').text(motoristaInfo, LM, y);
+    doc.fill('#000000');
 
-    // Linha separadora
     y += 20;
-    doc.moveTo(leftMargin + 15, y).lineTo(rightMargin - 15, y).stroke('#cccccc');
+    doc.moveTo(LM, y).lineTo(LM + pageW, y).stroke('#dddddd');
 
     // DADOS DO SERVICO
     y += 18;
-    doc.fontSize(10).fill(corPrin).font('Helvetica-Bold').text('DADOS DO SERVICO', leftMargin + 15, y).fill('#000000');
+    doc.fontSize(10).fill(corPrin).font('Helvetica-Bold').text('DADOS DO SERVICO', LM, y).fill('#000000');
     y += 16;
 
-    // Tabela de informações
-    const col1 = leftMargin + 15;
-    const col2 = leftMargin + 130;
-    const colW = 180;
-    const rowH = 16;
+    const rH = 18;
 
-    // Função helper para linha da tabela
-    const tableRow = (label, value, cy) => {
-      doc.rect(col1 - 3, cy - 2, colW + 15, rowH).fillAndStroke('#f5f5f5', '#eeeeee');
-      doc.fill('#333333').fontSize(9).font('Helvetica-Bold').text(label, col1 + 5, cy + 2);
-      doc.fill('#000000').font('Helvetica').text(value, col1 + 100, cy + 2);
+    const linha = (label, value) => {
+      doc.rect(LM, y - 2, pageW, rH).fillAndStroke('#f8f8f8', '#eeeeee');
+      doc.fill('#333333').fontSize(9).font('Helvetica-Bold').text(label, LM + 8, y + 2);
+      doc.fill('#000000').font('Helvetica').text(value, LM + 75, y + 2, { width: pageW - 83 });
+      y += rH;
     };
 
-    tableRow('Cliente:', corrida.cliente || 'N/A', y); y += rowH;
-    tableRow('Servico:', corrida.servico || 'N/A', y); y += rowH;
-    doc.rect(col1 - 3, y - 2, colW + 15, rowH * 2).fillAndStroke('#ffffff', '#eeeeee');
-    doc.fill('#333333').fontSize(9).font('Helvetica-Bold').text('Origem:', col1 + 5, y + 2);
-    doc.fill('#000000').font('Helvetica').text(corrida.origem, col1 + 100, y + 2, { width: 180 });
-    y += rowH;
-    doc.rect(col1 - 3, y - 2, colW + 15, rowH).fillAndStroke('#ffffff', '#eeeeee');
-    y += rowH;
+    linha('Cliente:', corrida.cliente || 'N/A');
+    linha('Servico:', corrida.servico || 'N/A');
+    linha('Origem:', corrida.origem);
+    linha('Destino:', corrida.destino);
 
-    doc.rect(col1 - 3, y - 2, colW + 15, rowH * 2).fillAndStroke('#ffffff', '#eeeeee');
-    doc.fill('#333333').fontSize(9).font('Helvetica-Bold').text('Destino:', col1 + 5, y + 2);
-    doc.fill('#000000').font('Helvetica').text(corrida.destino, col1 + 100, y + 2, { width: 180 });
-    y += rowH;
-    doc.rect(col1 - 3, y - 2, colW + 15, rowH).fillAndStroke('#ffffff', '#eeeeee');
-    y += rowH;
+    y += 8;
+    doc.moveTo(LM, y).lineTo(LM + pageW, y).stroke('#dddddd');
 
-    // Segunda coluna - Valores
-    const col3 = leftMargin + 200;
-    const colW2 = 150;
-
-    const tableRow2 = (label, value, cy, bold) => {
-      doc.rect(col3 - 3, cy - 2, colW2 + 15, rowH).fillAndStroke('#f5f5f5', '#eeeeee');
-      doc.fill('#333333').fontSize(9).font('Helvetica-Bold').text(label, col3 + 5, cy + 2);
-      doc.fill('#000000').font(bold ? 'Helvetica-Bold' : 'Helvetica').text(value, col3 + 85, cy + 2, { align: 'right' });
-    };
+    // VALORES
+    y += 18;
+    doc.fontSize(10).fill(corPrin).font('Helvetica-Bold').text('VALORES', LM, y).fill('#000000');
+    y += 16;
 
     const vkm = corrida.valorPorKm || 0;
     const tf = corrida.taxaFixa || 0;
@@ -268,42 +250,51 @@ exports.comprovante = async (req, res) => {
     const dist = corrida.distanciaKm || 0;
     const total = corrida.valorTotal || 0;
 
-    tableRow2('Distancia:', `${dist} km`, 138, false);
-    let yy = 154;
-    tableRow2('Tempo:', corrida.tempoEstimado || '-', yy, false); yy += rowH;
-    tableRow2('Valor/KM:', `R$ ${vkm.toFixed(2)}`, yy, false); yy += rowH;
-    tableRow2('Taxa Fixa:', `R$ ${tf.toFixed(2)}`, yy, false); yy += rowH;
-    if (ped > 0) { tableRow2('Pedagio:', `R$ ${ped.toFixed(2)}`, yy, false); yy += rowH; }
-    if (esp > 0) { tableRow2('Espera:', `R$ ${esp.toFixed(2)}`, yy, false); yy += rowH; }
-    if (ajud > 0) { tableRow2('Ajudante:', `R$ ${ajud.toFixed(2)}`, yy, false); yy += rowH; }
-    if (acre > 0) { tableRow2('Acrescimos:', `R$ ${acre.toFixed(2)}`, yy, false); yy += rowH; }
-    if (desc > 0) { tableRow2('Descontos:', `-R$ ${desc.toFixed(2)}`, yy, false); yy += rowH; }
+    const linhaValor = (label, value, highlight) => {
+      doc.rect(LM, y - 2, pageW, rH).fillAndStroke(highlight ? '#fff3cd' : '#f8f8f8', '#eeeeee');
+      doc.fill('#333333').fontSize(9).font(highlight ? 'Helvetica-Bold' : 'Helvetica').text(label, LM + 8, y + 2);
+      doc.fill(highlight ? '#dc3545' : '#000000').font(highlight ? 'Helvetica-Bold' : 'Helvetica')
+        .text(value, LM + 8, y + 2, { width: pageW - 16, align: 'right' });
+      y += rH;
+    };
 
-    // Total com destaque
-    yy += 5;
-    doc.rect(col3 - 3, yy - 2, colW2 + 15, rowH + 6).fill(corPrin);
-    doc.fill('#ffffff').fontSize(12).font('Helvetica-Bold').text('VALOR TOTAL:', col3 + 5, yy + 2);
-    doc.text(`R$ ${total.toFixed(2)}`, col3 + 5, yy + 2, { align: 'right' }).fill('#000000');
+    linhaValor('Distancia:', `${dist} km`);
+    linhaValor('Tempo estimado:', corrida.tempoEstimado || '-');
+    linhaValor('Valor por km:', `R$ ${vkm.toFixed(2)}`);
+    if (tf > 0) linhaValor('Taxa Fixa:', `R$ ${tf.toFixed(2)}`);
+    if (ped > 0) linhaValor('Pedagio:', `R$ ${ped.toFixed(2)}`);
+    if (esp > 0) linhaValor('Espera:', `R$ ${esp.toFixed(2)}`);
+    if (ajud > 0) linhaValor('Ajudante:', `R$ ${ajud.toFixed(2)}`);
+    if (acre > 0) linhaValor('Acrescimos:', `R$ ${acre.toFixed(2)}`);
+    if (desc > 0) linhaValor('Descontos:', `- R$ ${desc.toFixed(2)}`);
+    y += 4;
+
+    // TOTAL em destaque
+    doc.rect(LM, y - 2, pageW, rH + 6).fill(corPrin);
+    doc.fill('#ffffff').fontSize(14).font('Helvetica-Bold').text('VALOR TOTAL', LM + 15, y + 2);
+    doc.text(`R$ ${total.toFixed(2)}`, LM + 15, y + 2, { width: pageW - 30, align: 'right' });
+    doc.fill('#000000');
+    y += rH + 10;
 
     // Data e hora
-    yy += 50;
-    doc.fill('#666666').fontSize(8).font('Helvetica');
-    doc.text(`Data: ${new Date(corrida.createdAt).toLocaleDateString('pt-BR')}`, leftMargin + 15, yy);
-    doc.text(`Hora: ${new Date(corrida.createdAt).toLocaleTimeString('pt-BR')}`, leftMargin + 15, yy + 12);
+    y += 10;
+    doc.fontSize(8).fill('#888888');
+    doc.text([`Data: ${new Date(corrida.createdAt).toLocaleDateString('pt-BR')}`, `Hora: ${new Date(corrida.createdAt).toLocaleTimeString('pt-BR')}`].join('  |  '), LM, y);
+    doc.fill('#000000');
 
-    // Observações
+    // Observacoes
     if (corrida.observacoes) {
-      yy += 30;
-      doc.fontSize(9).fill('#333333').font('Helvetica-Bold').text('Observacoes:', leftMargin + 15, yy);
-      doc.font('Helvetica').fill('#000000').text(corrida.observacoes, leftMargin + 15, yy + 14, { width: pageW - 30 });
+      y += 18;
+      doc.fontSize(9).fill('#333333').font('Helvetica-Bold').text('Observacoes:', LM, y);
+      y += 14;
+      doc.font('Helvetica').fill('#000000').text(corrida.observacoes, LM, y, { width: pageW });
     }
 
     // FOOTER
-    const footerY = doc.page.height - 60;
-    doc.moveTo(leftMargin + 15, footerY).lineTo(rightMargin - 15, footerY).stroke('#cccccc');
-    doc.fontSize(8).fill('#999999').font('Helvetica')
-      .text(`Emitido por Hydra Transportes Urgentes - Motorista: ${nomeMotorista}`, leftMargin + 15, footerY + 8, { align: 'center' });
-    doc.text(`Tel: ${telMotorista} | WhatsApp: ${zapMotorista}`, leftMargin + 15, footerY + 20, { align: 'center' });
+    const footerY = doc.page.height - 55;
+    doc.moveTo(LM, footerY).lineTo(LM + pageW, footerY).stroke('#cccccc');
+    doc.fontSize(7).fill('#aaaaaa').font('Helvetica')
+      .text(`Hydra Transportes Urgentes - ${nomeMotorista} - ${telMotorista}`, LM, footerY + 8, { align: 'center' });
 
     doc.end();
   } catch (err) {
