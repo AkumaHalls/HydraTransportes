@@ -1,12 +1,12 @@
 version: "3.8"
 
 services:
-  bluemeter:
-    image: bluemeter-web:latest
+  hydra-transportes:
+    image: hydra-transportes-web:latest
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: bluemeter-web
+    container_name: hydra-transportes-web
     ports:
       - "3000:3000"
     env_file:

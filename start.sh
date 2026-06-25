@@ -1,5 +1,5 @@
 #!/bin/bash
-# BlueMeter Web - Script de inicialização
+# Hydra Transportes Urgentes - Script de inicialização
 
 cd "$(dirname "$0")/backend"
 
@@ -8,5 +8,5 @@ if [ ! -d "node_modules" ]; then
   npm install
 fi
 
-echo "Iniciando BlueMeter Web..."
+echo "Iniciando Hydra Transportes Urgentes..."
 exec node server.js

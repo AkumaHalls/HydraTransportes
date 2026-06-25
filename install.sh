@@ -1,11 +1,11 @@
 #!/bin/bash
-# BlueMeter Web - Script de instalação para Oracle Linux
+# Hydra Transportes Urgentes - Script de instalação para Oracle Linux
 
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "========================================"
-echo "  BlueMeter Web - Instalação"
+echo "  Hydra Transportes Urgentes - Instalação"
 echo "========================================"
 
 if ! command -v node &> /dev/null; then
@@ -27,9 +27,9 @@ if command -v firewall-cmd &> /dev/null; then
 fi
 
 echo "[4/4] Criando serviço systemd..."
-cat > /etc/systemd/system/bluemeter.service << SERVICE
+cat > /etc/systemd/system/hydra-transportes.service << SERVICE
 [Unit]
-Description=BlueMeter Web
+Description=Hydra Transportes Urgentes
 After=network.target
 
 [Service]
@@ -46,8 +46,8 @@ WantedBy=multi-user.target
 SERVICE
 
 systemctl daemon-reload
-systemctl enable bluemeter
-systemctl start bluemeter
+systemctl enable hydra-transportes
+systemctl start hydra-transportes
 
 echo ""
 echo "========================================"

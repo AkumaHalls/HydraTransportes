@@ -1,7 +1,7 @@
 {
-  "name": "bluemeter-web",
-  "version": "1.0.1",
-  "description": "BlueMeter Web - Sistema de cálculo de fretes e corridas para motoristas autônomos",
+  "name": "hydra-transportes",
+  "version": "1.0.2",
+  "description": "Hydra Transportes Urgentes - Sistema de fretes, entregas e corridas para motoristas autônomos",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

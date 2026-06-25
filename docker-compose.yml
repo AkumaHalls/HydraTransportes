@@ -1,9 +1,9 @@
 services:
-  bluemeter:
+  hydra-transportes:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: bluemeter-web
+    container_name: hydra-transportes-web
     ports:
       - "3000:3000"
     env_file:

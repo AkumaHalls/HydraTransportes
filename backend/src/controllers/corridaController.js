@@ -11,7 +11,7 @@ exports.calcular = async (req, res) => {
 
     const geocode = async (address) => {
       const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
-      const { data } = await axios.get(url, { headers: { 'User-Agent': 'BlueMeterWeb/1.0' } });
+      const { data } = await axios.get(url, { headers: { 'User-Agent': 'HydraTransportes/1.0' } });
       if (!data.length) throw new Error(`Endereço não encontrado: ${address}`);
       return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
     };

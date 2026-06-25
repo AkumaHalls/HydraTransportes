@@ -1,6 +1,6 @@
 {
-  "name": "BlueMeter Web",
-  "short_name": "BlueMeter",
+  "name": "Hydra Transportes Urgentes",
+  "short_name": "Hydra Transportes",
   "description": "Sistema de cálculo de fretes e corridas para motoristas autônomos",
   "start_url": "/",
   "display": "standalone",

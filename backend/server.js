@@ -11,7 +11,7 @@ const path = require('path');
 
 const app = express();
 
-const MONGO_URI = process.env.MONGODB_URI.replace('/?', '/bluemeter?');
+const MONGO_URI = process.env.MONGODB_URI.replace('/?', '/hydra_transportes?');
 mongoose.connect(MONGO_URI)
   .then(async () => {
     console.log('MongoDB connected');

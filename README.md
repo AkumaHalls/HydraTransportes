@@ -1,4 +1,4 @@
-# BlueMeter Web
+# Hydra Transportes Urgentes
 
 Sistema completo de cálculo de fretes, entregas, carretos e corridas para motoristas autônomos.
 
@@ -56,7 +56,7 @@ tele/
 Renomeie `.env.example` para `.env` e preencha:
 
 ```env
-MONGODB_URI=mongodb://usuario:senha@host:27017/bluemeter?authSource=admin
+MONGODB_URI=mongodb://usuario:senha@host:27017/hydra_transportes?authSource=admin
 PORT=3000
 NODE_ENV=production
 ```
@@ -87,8 +87,8 @@ As credenciais e configurações sensíveis são injetadas via arquivo `.env`, q
 #### 1. Clonar o repositório
 
 ```bash
-git clone https://github.com/seu-usuario/bluemeter-web.git
-cd bluemeter-web
+git clone https://github.com/seu-usuario/hydra_transportes-web.git
+cd hydra_transportes-web
 ```
 
 #### 2. Preencher as variáveis sensíveis
@@ -117,7 +117,7 @@ cp .env.example .env
 **Opção A — Via stack.yml (recomendado):**
 
 1. Acesse o Portainer → **Stacks** → **Add stack**
-2. Nome: `bluemeter-web`
+2. Nome: `hydra_transportes-web`
 3. Método: **Upload** ou **Web Editor**
 4. Cole o conteúdo do arquivo `stack.yml`
 5. Em **Environment variables**, adicione as variáveis do `.env` manualmente ou faça upload do arquivo
@@ -142,7 +142,7 @@ http://IP_DO_SERVIDOR:3000
 Para verificar os logs:
 
 ```bash
-docker logs bluemeter-web
+docker logs hydra_transportes-web
 ```
 
 ### Healthcheck

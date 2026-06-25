@@ -1,4 +1,4 @@
-const CACHE = 'bluemeter-v1';
+const CACHE = 'hydra-v1';
 const urls = ['/', 'index.html', 'css/style.css', 'js/app.js', 'manifest.json'];
 
 self.addEventListener('install', (e) => {
