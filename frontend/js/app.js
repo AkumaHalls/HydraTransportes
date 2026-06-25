@@ -915,6 +915,10 @@ async function saveConfig() {
   try {
     await loadConfig();
     if (configCache?.personalizacao?.tema === 'dark') document.body.classList.add('dark-mode');
+    if (configCache?.motorista?.logo) {
+      const logoEl = document.getElementById('sidebarLogo');
+      if (logoEl) logoEl.src = configCache.motorista.logo;
+    }
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch(() => {});
     }
