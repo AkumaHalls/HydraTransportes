@@ -346,7 +346,8 @@ exports.comprovante = async (req, res) => {
 
       // Proporcao real vs area disponivel (com tamanho minimo)
       const mercW = gx(maxLng) - gx(minLng);
-      const mercH = gy(minLat) - gy(maxLat);
+      const mercHDiff = gy(maxLat) - gy(minLat); // negativo: norte tem Y menor
+      const mercH = gy(minLat) - gy(maxLat); // positivo para aspect ratio
       const bboxAspect = mercW / mercH;
       const drawAspect = drawW / drawH;
       let tileW = drawW, tileH = drawH;
@@ -360,7 +361,7 @@ exports.comprovante = async (req, res) => {
       }
 
       const projX = (lng) => LM + pad + xOff2 + (gx(lng) - gx(minLng)) / mercW * tileW;
-      const projY = (lat) => y + pad + yOff2 + (gy(maxLat) - gy(lat)) / mercH * tileH;
+      const projY = (lat) => y + pad + yOff2 + (gy(maxLat) - gy(lat)) / mercHDiff * tileH;
 
       // Tenta baixar tiles OSM
       let mapOk = false;
