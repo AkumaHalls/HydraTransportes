@@ -300,8 +300,9 @@ exports.comprovante = async (req, res) => {
     // Observacoes
     if (corrida.observacoes) {
       y += 18;
+      doc.fontSize(9).font('Helvetica');
       const obsH = doc.heightOfString(corrida.observacoes, { width: pageW });
-      doc.fontSize(9).fill('#333333').font('Helvetica-Bold').text('Observacoes:', LM, y);
+      doc.fill('#333333').font('Helvetica-Bold').text('Observacoes:', LM, y);
       y += 14;
       doc.font('Helvetica').fill('#000000').text(corrida.observacoes, LM, y, { width: pageW });
       y += obsH + 6;
@@ -314,7 +315,11 @@ exports.comprovante = async (req, res) => {
       y += 18;
 
       const coords = corrida.rotaGeoJSON.coordinates;
-      const mapH = 240, mapW = pageW, pad = 20;
+      const pad = 15;
+      const footerY = doc.page.height - 55;
+      const maxMapH = Math.max(100, footerY - 30 - y);
+      const mapH = Math.min(240, maxMapH);
+      const mapW = pageW;
       const drawW = mapW - pad * 2, drawH = mapH - pad * 2;
 
       let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
@@ -421,8 +426,6 @@ exports.comprovante = async (req, res) => {
       doc.circle(dx, dy, mapOk ? 6 : 5).fillAndStroke('#ffffff', '#000000');
       doc.fill('#dc3545').fontSize(7).font('Helvetica-Bold').text('DESTINO', dx + (mapOk ? 9 : 8), dy - 5);
       doc.fill('#000000');
-
-      y += mapH + 10; // mantem espaco do rodape consistente
     }
 
     // FOOTER
