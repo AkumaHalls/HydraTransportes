@@ -209,7 +209,7 @@ exports.comprovante = async (req, res) => {
     }
 
     const reciboNum = corrida._id.toString().slice(-8).toUpperCase();
-    doc.fontSize(8).fill('#666666').text(`Recibo: #${reciboNum}`, LM + pageW - 90, y + 68, { align: 'right' });
+    doc.fontSize(8).fill('#ffffff').font('Helvetica-Bold').text(`Recibo: #${reciboNum}`, LM + 15, y + 68);
     doc.fill('#000000');
 
     y += 100;
@@ -234,10 +234,12 @@ exports.comprovante = async (req, res) => {
     const rH = 18;
 
     const linha = (label, value) => {
-      doc.rect(LM, y - 2, pageW, rH).fillAndStroke('#f8f8f8', '#eeeeee');
-      doc.fill('#333333').fontSize(9).font('Helvetica-Bold').text(label, LM + 8, y + 2);
+      doc.font('Helvetica').fontSize(9);
+      const lh = Math.max(rH, doc.heightOfString(String(value), { width: pageW - 83 }) + 6);
+      doc.rect(LM, y - 2, pageW, lh).fillAndStroke('#f8f8f8', '#eeeeee');
+      doc.fill('#333333').font('Helvetica-Bold').text(label, LM + 8, y + 2);
       doc.fill('#000000').font('Helvetica').text(value, LM + 75, y + 2, { width: pageW - 83 });
-      y += rH;
+      y += lh;
     };
 
     linha('Cliente:', corrida.cliente || 'N/A');
@@ -298,9 +300,11 @@ exports.comprovante = async (req, res) => {
     // Observacoes
     if (corrida.observacoes) {
       y += 18;
+      const obsH = doc.heightOfString(corrida.observacoes, { width: pageW });
       doc.fontSize(9).fill('#333333').font('Helvetica-Bold').text('Observacoes:', LM, y);
       y += 14;
       doc.font('Helvetica').fill('#000000').text(corrida.observacoes, LM, y, { width: pageW });
+      y += obsH + 6;
     }
 
     // MAPA DA ROTA
@@ -310,7 +314,7 @@ exports.comprovante = async (req, res) => {
       y += 18;
 
       const coords = corrida.rotaGeoJSON.coordinates;
-      const mapH = 220, mapW = pageW, pad = 20;
+      const mapH = 240, mapW = pageW, pad = 20;
       const drawW = mapW - pad * 2, drawH = mapH - pad * 2;
 
       let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
@@ -343,7 +347,7 @@ exports.comprovante = async (req, res) => {
       let tileW = drawW, tileH = drawH;
       let xOff2 = 0, yOff2 = 0;
       if (bboxAspect > drawAspect) {
-        tileH = Math.max(drawH * 0.6, drawW / bboxAspect);
+        tileH = Math.max(drawH * 0.8, drawW / bboxAspect);
         yOff2 = (drawH - tileH) / 2;
       } else {
         tileW = Math.max(drawW * 0.4, drawH * bboxAspect);
