@@ -6,8 +6,8 @@ services:
     container_name: hydra-transportes-web
     ports:
       - "3000:3000"
-    env_file:
-      - .env
     restart: unless-stopped
     environment:
-      - NODE_ENV=production
+      - MONGODB_URI=${MONGODB_URI}
+      - PORT=${PORT:-3000}
+      - NODE_ENV=${NODE_ENV:-production}

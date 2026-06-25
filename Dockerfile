@@ -9,7 +9,6 @@ WORKDIR /app
 COPY --from=builder /app/backend/node_modules ./backend/node_modules
 COPY backend/ ./backend/
 COPY frontend/ ./frontend/
-COPY .env ./
 
 RUN chown -R node:node /app
 
