@@ -134,11 +134,16 @@ exports.pdfRelatorio = async (req, res) => {
 
     let totalGeral = 0;
     corridas.forEach(c => {
+      const distFinal = c.idaEVolta ? (c.distanciaKm * 2) : c.distanciaKm;
       doc.fontSize(9);
       doc.text(`Cliente: ${c.cliente || 'N/A'}  |  Servico: ${c.servico || 'N/A'}  |  Data: ${new Date(c.createdAt).toLocaleDateString('pt-BR')}`);
+      doc.text(`Motorista: ${c.motoristaNome || 'N/A'}  ${c.idaEVolta ? '| Ida e Volta' : ''}`);
       doc.text(`Origem: ${c.origem}`);
       doc.text(`Destino: ${c.destino}`);
-      doc.text(`Distancia: ${c.distanciaKm} km  |  Valor: R$ ${c.valorTotal?.toFixed(2) || '0,00'}`);
+      if (c.paradas && c.paradas.length > 0) {
+        doc.text(`Paradas: ${c.paradas.map(p => p.endereco).join('; ')}`);
+      }
+      doc.text(`Distancia: ${c.distanciaKm} km${c.idaEVolta ? ` (total percorrido: ${distFinal} km)` : ''}  |  Valor: R$ ${c.valorTotal?.toFixed(2) || '0,00'}`);
       doc.moveDown(0.5);
       totalGeral += c.valorTotal || 0;
     });
@@ -165,8 +170,32 @@ exports.comprovante = async (req, res) => {
     const motorista = config?.motorista || {};
     const valores = config?.valores || {};
     const corPrin = config?.personalizacao?.corPrincipal || '#0d6efd';
+
+    // Usa motorista vinculado à corrida se existir, senão fallback pro config
+    let nomeMotorista = corrida.motoristaNome || motorista.nome || 'Motorista';
+    let telMotorista = motorista.telefone || '';
+    let zapMotorista = motorista.whatsapp || '';
+    let cidadeMotorista = motorista.cidade || '';
+    let estadoMotorista = motorista.estado || '';
     let logoData = motorista.logo || null;
-    // Fallback: tenta ler o HydraLogo.png do disco se nao tiver logo no config
+
+    // Se a corrida tem motoristaId, tenta buscar dados completos do driver
+    if (corrida.motoristaId) {
+      try {
+        const Driver = require('../models/Driver');
+        const driver = await Driver.findById(corrida.motoristaId);
+        if (driver) {
+          nomeMotorista = driver.nome || nomeMotorista;
+          telMotorista = driver.telefone || telMotorista;
+          zapMotorista = driver.whatsapp || zapMotorista;
+          cidadeMotorista = driver.cidade || cidadeMotorista;
+          estadoMotorista = driver.estado || estadoMotorista;
+          if (driver.logo) logoData = driver.logo;
+        }
+      } catch (_) {}
+    }
+
+    // Fallback: tenta ler o HydraLogo.png do disco se nao tiver logo
     if (!logoData) {
       try {
         const fs = require('fs');
@@ -179,11 +208,6 @@ exports.comprovante = async (req, res) => {
         }
       } catch (_) {}
     }
-    const nomeMotorista = motorista.nome || 'Motorista';
-    const telMotorista = motorista.telefone || '';
-    const zapMotorista = motorista.whatsapp || '';
-    const cidadeMotorista = motorista.cidade || '';
-    const estadoMotorista = motorista.estado || '';
 
     const doc = new PDFDocument({ margin: 35, size: 'A4' });
     res.setHeader('Content-Type', 'application/pdf');

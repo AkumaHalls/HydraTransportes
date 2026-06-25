@@ -24,6 +24,8 @@ const corridaSchema = new mongoose.Schema({
   valorTotal: { type: Number, default: 0 },
   observacoes: { type: String, default: '' },
   rotaGeoJSON: { type: Object, default: null },
+  motoristaId: { type: mongoose.Schema.Types.ObjectId, ref: 'Driver', default: null },
+  motoristaNome: { type: String, default: '' },
   paradas: [{
     endereco: { type: String },
     lat: { type: Number },

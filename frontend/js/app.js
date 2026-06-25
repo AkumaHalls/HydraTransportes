@@ -324,19 +324,64 @@ async function previewAddress(address, type) {
   }
 }
 
+let paradaMaps = {};
+
+async function previewParada(address, idx) {
+  const mapId = `paradaMap_${idx}`;
+  const previewId = `paradaPreview_${idx}`;
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&accept-language=pt`, {
+      headers: { 'User-Agent': 'HydraTransportes/1.0' }
+    });
+    const data = await res.json();
+    if (!data.length) {
+      document.getElementById(previewId).innerHTML = '<small class="text-danger">Endereço não encontrado</small>';
+      document.getElementById(mapId).style.display = 'none';
+      return;
+    }
+    const loc = data[0];
+    document.getElementById(previewId).innerHTML = `<small class="text-success"><i class="bi bi-check-circle"></i> ${escapeHtml(loc.display_name.split(',')[0])}</small>`;
+
+    const mapEl = document.getElementById(mapId);
+    mapEl.style.display = 'block';
+    if (paradaMaps[idx]) { paradaMaps[idx].remove(); }
+    paradaMaps[idx] = L.map(mapId).setView([loc.lat, loc.lon], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(paradaMaps[idx]);
+    L.marker([loc.lat, loc.lon]).addTo(paradaMaps[idx]).bindPopup(`Parada ${idx + 1}`);
+    setTimeout(() => paradaMaps[idx]?.invalidateSize(), 200);
+  } catch (e) {
+    document.getElementById(previewId).innerHTML = '<small class="text-muted">Erro ao buscar endereço</small>';
+  }
+}
+
 let paradaIndex = 0;
 
 function addParadaField(endereco) {
   const container = document.getElementById('paradasContainer');
   const idx = paradaIndex++;
   const div = document.createElement('div');
-  div.className = 'input-group mb-2 parada-row';
+  div.className = 'mb-2 parada-row';
   div.id = `paradaRow_${idx}`;
   div.innerHTML = `
-    <input type="text" class="form-control parada-endereco" id="paradaEndereco_${idx}" placeholder="Endereço da parada ${idx + 1}" value="${escapeHtml(endereco || '')}">
-    <button class="btn btn-outline-danger" type="button" onclick="removerParada(${idx})"><i class="bi bi-x-circle"></i></button>
+    <div class="input-group mb-1">
+      <input type="text" class="form-control parada-endereco" id="paradaEndereco_${idx}" placeholder="Endereço da parada ${idx + 1}" value="${escapeHtml(endereco || '')}">
+      <button class="btn btn-outline-danger" type="button" onclick="removerParada(${idx})"><i class="bi bi-x-circle"></i></button>
+    </div>
+    <div id="paradaPreview_${idx}" class="mt-1"></div>
+    <div id="paradaMap_${idx}" class="map-container mt-1" style="height:150px;display:none"></div>
   `;
   container.appendChild(div);
+
+  let paradaTimeout;
+  document.getElementById(`paradaEndereco_${idx}`).addEventListener('input', (e) => {
+    clearTimeout(paradaTimeout);
+    if (e.target.value.length < 5) {
+      document.getElementById(`paradaMap_${idx}`).style.display = 'none';
+      document.getElementById(`paradaPreview_${idx}`).innerHTML = '';
+      return;
+    }
+    paradaTimeout = setTimeout(() => previewParada(e.target.value, idx), 1000);
+  });
 }
 
 function removerParada(idx) {
@@ -395,7 +440,8 @@ async function calcularCorrida() {
             <div class="result-item"><span>Distância (volta)</span><strong>${result.distanciaKm} km</strong></div>
             <div class="result-item"><span>Distância total (ida e volta)</span><strong>${distFinal} km</strong></div>
           ` : `
-            <div class="result-item"><span>Distância</span><strong>${result.distanciaKm} km</strong></div>
+            ${result.motoristaNome ? `<div class="result-item"><span>Motorista</span><strong>${escapeHtml(result.motoristaNome)}</strong></div>` : ''}
+          <div class="result-item"><span>Distância</span><strong>${result.distanciaKm} km</strong></div>
           `}
           <div class="result-item"><span>Tempo Estimado</span><strong>${result.tempoEstimado}</strong></div>
           <div class="result-item"><span>Valor por km</span><strong>${formatMoney(result.valorPorKm)}</strong></div>
@@ -650,6 +696,15 @@ async function editarCorrida(id) {
     document.getElementById('corridaAcrescimos').value = c.acrescimos || 0;
     document.getElementById('corridaDescontos').value = c.descontos || 0;
     document.getElementById('corridaObs').value = c.observacoes || '';
+
+    // Recarregar paradas
+    const container = document.getElementById('paradasContainer');
+    if (container) container.innerHTML = '';
+    if (c.paradas && c.paradas.length > 0) {
+      c.paradas.forEach(p => {
+        if (p.endereco) addParadaField(p.endereco);
+      });
+    }
   }, 100);
 }
 

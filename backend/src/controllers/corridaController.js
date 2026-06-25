@@ -8,6 +8,14 @@ exports.calcular = async (req, res) => {
 
     const config = await Config.findOne();
     const valores = config ? config.valores : {};
+    let motoristaNome = '';
+    if (config && config.motoristaId) {
+      try {
+        const Driver = require('../models/Driver');
+        const motorista = await Driver.findById(config.motoristaId);
+        if (motorista) motoristaNome = motorista.nome;
+      } catch (_) {}
+    }
 
     const geocode = async (address) => {
       const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
@@ -98,6 +106,8 @@ exports.calcular = async (req, res) => {
       valorTotal: Math.round(valorTotal * 100) / 100,
       observacoes: observacoes || '',
       rotaGeoJSON: route.geometry,
+      motoristaId: (config && config.motoristaId) || null,
+      motoristaNome,
       paradas: paradasValidas,
       totalParadas,
       taxaPorParada
@@ -187,7 +197,7 @@ exports.dashboard = async (req, res) => {
 
     const total = corridas.length;
     const faturadoTotal = corridas.reduce((s, c) => s + (c.valorTotal || 0), 0);
-    const kmTotal = corridas.reduce((s, c) => s + (c.distanciaKm || 0), 0);
+    const kmTotal = corridas.reduce((s, c) => s + ((c.distanciaKm || 0) * (c.idaEVolta ? 2 : 1)), 0);
 
     const corridasMes = corridas.filter(c => new Date(c.createdAt) >= startOfMonth);
     const faturadoMes = corridasMes.reduce((s, c) => s + (c.valorTotal || 0), 0);
@@ -207,7 +217,7 @@ exports.dashboard = async (req, res) => {
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       faturamentoPorMes[key] = (faturamentoPorMes[key] || 0) + (c.valorTotal || 0);
       corridasPorMes[key] = (corridasPorMes[key] || 0) + 1;
-      kmPorMes[key] = (kmPorMes[key] || 0) + (c.distanciaKm || 0);
+      kmPorMes[key] = (kmPorMes[key] || 0) + ((c.distanciaKm || 0) * (c.idaEVolta ? 2 : 1));
     });
 
     const labels = Object.keys(faturamentoPorMes).sort();
