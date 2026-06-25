@@ -208,11 +208,15 @@ async function renderCorridas() {
           </div>
           <div class="col-md-6">
             <label class="form-label">Origem</label>
-            <input class="form-control" id="corridaOrigem" placeholder="Endereço de origem">
+            <input class="form-control" id="corridaOrigem" placeholder="Digite o endereço de origem">
+            <div id="origemPreview" class="mt-1"></div>
+            <div id="origemMap" class="map-container mt-1" style="height:150px;display:none"></div>
           </div>
           <div class="col-md-6">
             <label class="form-label">Destino</label>
-            <input class="form-control" id="corridaDestino" placeholder="Endereço de destino">
+            <input class="form-control" id="corridaDestino" placeholder="Digite o endereço de destino">
+            <div id="destinoPreview" class="mt-1"></div>
+            <div id="destinoMap" class="map-container mt-1" style="height:150px;display:none"></div>
           </div>
           <div class="col-md-6">
             <div class="form-check form-switch">
@@ -258,8 +262,50 @@ async function renderCorridas() {
     `;
 
     document.getElementById('btnCalcular').addEventListener('click', calcularCorrida);
+
+    let origTimeout, destTimeout;
+    document.getElementById('corridaOrigem').addEventListener('input', (e) => {
+      clearTimeout(origTimeout);
+      if (e.target.value.length < 5) { document.getElementById('origemMap').style.display = 'none'; document.getElementById('origemPreview').innerHTML = ''; return; }
+      origTimeout = setTimeout(() => previewAddress(e.target.value, 'origem'), 1000);
+    });
+    document.getElementById('corridaDestino').addEventListener('input', (e) => {
+      clearTimeout(destTimeout);
+      if (e.target.value.length < 5) { document.getElementById('destinoMap').style.display = 'none'; document.getElementById('destinoPreview').innerHTML = ''; return; }
+      destTimeout = setTimeout(() => previewAddress(e.target.value, 'destino'), 1000);
+    });
   } catch (err) {
     el.innerHTML = `<div class="alert alert-danger">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+let previewMaps = {};
+
+async function previewAddress(address, type) {
+  const mapId = type + 'Map';
+  const previewId = type + 'Preview';
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&accept-language=pt`, {
+      headers: { 'User-Agent': 'HydraTransportes/1.0' }
+    });
+    const data = await res.json();
+    if (!data.length) {
+      document.getElementById(previewId).innerHTML = '<small class="text-danger">Endereço não encontrado</small>';
+      document.getElementById(mapId).style.display = 'none';
+      return;
+    }
+    const loc = data[0];
+    document.getElementById(previewId).innerHTML = `<small class="text-success"><i class="bi bi-check-circle"></i> ${escapeHtml(loc.display_name.split(',')[0])}</small>`;
+
+    const mapEl = document.getElementById(mapId);
+    mapEl.style.display = 'block';
+    if (previewMaps[type]) { previewMaps[type].remove(); }
+    previewMaps[type] = L.map(mapId).setView([loc.lat, loc.lon], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(previewMaps[type]);
+    L.marker([loc.lat, loc.lon]).addTo(previewMaps[type]).bindPopup(type === 'origem' ? 'Origem' : 'Destino');
+    setTimeout(() => previewMaps[type]?.invalidateSize(), 200);
+  } catch (e) {
+    document.getElementById(previewId).innerHTML = '<small class="text-muted">Erro ao buscar endereço</small>';
   }
 }
 
