@@ -305,6 +305,51 @@ body {
   border-right: none;
 }
 
+.autocomplete-wrapper {
+  position: relative;
+}
+
+.autocomplete-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 0 0 8px 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 9999;
+  display: none;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.dark-mode .autocomplete-suggestions {
+  background: #1a1a2e;
+  border-color: #0f3460;
+}
+
+.autocomplete-suggestions .suggestion-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.dark-mode .autocomplete-suggestions .suggestion-item {
+  border-bottom-color: #0f3460;
+}
+
+.autocomplete-suggestions .suggestion-item:hover,
+.autocomplete-suggestions .suggestion-item.active {
+  background: #e8f4f8;
+}
+
+.dark-mode .autocomplete-suggestions .suggestion-item:hover,
+.dark-mode .autocomplete-suggestions .suggestion-item.active {
+  background: #0f3460;
+}
+
 .toast-container {
   position: fixed;
   top: 20px;

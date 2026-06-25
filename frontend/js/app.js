@@ -209,13 +209,19 @@ async function renderCorridas() {
           </div>
           <div class="col-md-6">
             <label class="form-label">Origem</label>
-            <input class="form-control" id="corridaOrigem" placeholder="Digite o endereço de origem">
+            <div class="autocomplete-wrapper">
+              <input class="form-control" id="corridaOrigem" placeholder="Digite o endereço de origem" autocomplete="off">
+              <div class="autocomplete-suggestions" id="origemSuggestions"></div>
+            </div>
             <div id="origemPreview" class="mt-1"></div>
             <div id="origemMap" class="map-container mt-1" style="height:150px;display:none"></div>
           </div>
           <div class="col-md-6">
             <label class="form-label">Destino</label>
-            <input class="form-control" id="corridaDestino" placeholder="Digite o endereço de destino">
+            <div class="autocomplete-wrapper">
+              <input class="form-control" id="corridaDestino" placeholder="Digite o endereço de destino" autocomplete="off">
+              <div class="autocomplete-suggestions" id="destinoSuggestions"></div>
+            </div>
             <div id="destinoPreview" class="mt-1"></div>
             <div id="destinoMap" class="map-container mt-1" style="height:150px;display:none"></div>
           </div>
@@ -274,16 +280,19 @@ async function renderCorridas() {
 
     document.getElementById('btnCalcular').addEventListener('click', calcularCorrida);
 
+    setupAutocomplete('corridaOrigem', 'origem');
+    setupAutocomplete('corridaDestino', 'destino');
+
     let origTimeout, destTimeout;
     document.getElementById('corridaOrigem').addEventListener('input', (e) => {
       clearTimeout(origTimeout);
       if (e.target.value.length < 5) { document.getElementById('origemMap').style.display = 'none'; document.getElementById('origemPreview').innerHTML = ''; return; }
-      origTimeout = setTimeout(() => previewAddress(e.target.value, 'origem'), 1000);
+      origTimeout = setTimeout(() => previewAddress(e.target.value, 'origem'), 1200);
     });
     document.getElementById('corridaDestino').addEventListener('input', (e) => {
       clearTimeout(destTimeout);
       if (e.target.value.length < 5) { document.getElementById('destinoMap').style.display = 'none'; document.getElementById('destinoPreview').innerHTML = ''; return; }
-      destTimeout = setTimeout(() => previewAddress(e.target.value, 'destino'), 1000);
+      destTimeout = setTimeout(() => previewAddress(e.target.value, 'destino'), 1200);
     });
 
     document.getElementById('addParada').addEventListener('click', () => {
@@ -322,6 +331,65 @@ async function previewAddress(address, type) {
   } catch (e) {
     document.getElementById(previewId).innerHTML = '<small class="text-muted">Erro ao buscar endereço</small>';
   }
+}
+
+function setupAutocomplete(inputId, type) {
+  const input = document.getElementById(inputId);
+  const suggestionsEl = document.getElementById(type.includes('Suggestions') ? type : type + 'Suggestions');
+  if (!input || !suggestionsEl) return;
+
+  let acTimeout, selectedIndex = -1;
+
+  input.addEventListener('input', () => {
+    clearTimeout(acTimeout);
+    selectedIndex = -1;
+    const val = input.value.trim();
+    if (val.length < 3) { suggestionsEl.style.display = 'none'; return; }
+    acTimeout = setTimeout(async () => {
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(val)}&format=json&limit=5&accept-language=pt`, {
+          headers: { 'User-Agent': 'HydraTransportes/1.0' }
+        });
+        const data = await res.json();
+        if (!data.length) { suggestionsEl.style.display = 'none'; return; }
+        suggestionsEl.innerHTML = data.map((loc, i) =>
+          `<div class="suggestion-item" data-idx="${i}" data-lat="${loc.lat}" data-lon="${loc.lon}" data-display="${escapeHtml(loc.display_name)}">${escapeHtml(loc.display_name)}</div>`
+        ).join('');
+        suggestionsEl.style.display = 'block';
+      } catch (_) { suggestionsEl.style.display = 'none'; }
+    }, 400);
+  });
+
+  suggestionsEl.addEventListener('click', (e) => {
+    const item = e.target.closest('.suggestion-item');
+    if (!item) return;
+    input.value = item.dataset.display.split(',')[0].trim();
+    suggestionsEl.style.display = 'none';
+    input.dispatchEvent(new Event('input'));
+  });
+
+  input.addEventListener('keydown', (e) => {
+    const items = suggestionsEl.querySelectorAll('.suggestion-item');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectedIndex = Math.max(selectedIndex - 1, 0);
+    } else if (e.key === 'Enter' && selectedIndex >= 0) {
+      e.preventDefault();
+      items[selectedIndex].click();
+      return;
+    } else return;
+    items.forEach((el, i) => el.classList.toggle('active', i === selectedIndex));
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.autocomplete-wrapper')) {
+      suggestionsEl.style.display = 'none';
+    }
+  });
 }
 
 let paradaMaps = {};
@@ -364,13 +432,18 @@ function addParadaField(endereco) {
   div.id = `paradaRow_${idx}`;
   div.innerHTML = `
     <div class="input-group mb-1">
-      <input type="text" class="form-control parada-endereco" id="paradaEndereco_${idx}" placeholder="Endereço da parada ${idx + 1}" value="${escapeHtml(endereco || '')}">
+      <div class="autocomplete-wrapper flex-fill">
+        <input type="text" class="form-control parada-endereco" id="paradaEndereco_${idx}" placeholder="Endereço da parada ${idx + 1}" value="${escapeHtml(endereco || '')}" autocomplete="off">
+        <div class="autocomplete-suggestions" id="paradaSuggestions_${idx}"></div>
+      </div>
       <button class="btn btn-outline-danger" type="button" onclick="removerParada(${idx})"><i class="bi bi-x-circle"></i></button>
     </div>
     <div id="paradaPreview_${idx}" class="mt-1"></div>
     <div id="paradaMap_${idx}" class="map-container mt-1" style="height:150px;display:none"></div>
   `;
   container.appendChild(div);
+
+  setupAutocomplete(`paradaEndereco_${idx}`, `paradaSuggestions_${idx}`);
 
   let paradaTimeout;
   document.getElementById(`paradaEndereco_${idx}`).addEventListener('input', (e) => {
@@ -380,7 +453,7 @@ function addParadaField(endereco) {
       document.getElementById(`paradaPreview_${idx}`).innerHTML = '';
       return;
     }
-    paradaTimeout = setTimeout(() => previewParada(e.target.value, idx), 1000);
+    paradaTimeout = setTimeout(() => previewParada(e.target.value, idx), 1200);
   });
 }
 
@@ -533,11 +606,25 @@ function baixarPDF(id) {
   a.click();
 }
 
-function compartilharWhatsApp(id) {
-  const c = ultimaCorrida;
+async function compartilharWhatsApp(id) {
+  const c = ultimaCorrida || await api('GET', `/corridas/${id}`);
   if (!c) return;
   const config = configCache?.motorista || {};
-  const msg = `Olá!%0A%0ASegue o comprovante do serviço realizado.%0A%0ACliente: ${encodeURIComponent(c.cliente || 'N/A')}%0AServiço: ${encodeURIComponent(c.servico || 'N/A')}%0AOrigem: ${encodeURIComponent(c.origem)}%0ADestino: ${encodeURIComponent(c.destino)}%0ADistância: ${c.distanciaKm} km%0ATempo estimado: ${c.tempoEstimado}%0AValor Total: ${formatMoney(c.valorTotal)}%0A%0AMotorista: ${encodeURIComponent(config.nome || 'Motorista')}%0ATelefone: ${config.telefone || ''}`;
+  const msg = `Olá!%0A%0ASegue o comprovante do serviço realizado.%0A%0ACliente: ${encodeURIComponent(c.cliente || 'N/A')}%0AServiço: ${encodeURIComponent(c.servico || 'N/A')}%0AOrigem: ${encodeURIComponent(c.origem)}%0ADestino: ${encodeURIComponent(c.destino)}%0ADistância: ${c.distanciaKm} km%0ATempo estimado: ${c.tempoEstimado}%0AValor Total: ${formatMoney(c.valorTotal)}%0A%0AMotorista: ${encodeURIComponent(c.motoristaNome || config.nome || 'Motorista')}%0ATelefone: ${config.telefone || ''}`;
+
+  // Tenta compartilhar o PDF via Web Share API
+  try {
+    const tipo = document.querySelector('input[name="tipoPdf"]:checked')?.value || 'comprovante';
+    const pdfRes = await fetch(`/api/export/comprovante/${c._id}?tipo=${tipo}`);
+    const pdfBlob = await pdfRes.blob();
+    const file = new File([pdfBlob], `${tipo}_${c._id}.pdf`, { type: 'application/pdf' });
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: `Comprovante ${c._id}`, text: `Comprovante de serviço - ${c.cliente || 'N/A'}` });
+      return;
+    }
+  } catch (_) {}
+
+  // Fallback: texto via wa.me
   const url = `https://wa.me/${config.whatsapp || ''}?text=${msg}`;
   window.open(url, '_blank');
 }
