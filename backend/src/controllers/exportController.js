@@ -321,8 +321,24 @@ exports.comprovante = async (req, res) => {
         const r = lat * Math.PI / 180;
         return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n * TS;
       };
-      const projX = (lng) => LM + pad + (gx(lng) - gx(minLng)) / (gx(maxLng) - gx(minLng)) * drawW;
-      const projY = (lat) => y + pad + (gy(maxLat) - gy(lat)) / (gy(maxLat) - gy(minLat)) * drawH;
+
+      // Proporcao real do bounding box em Mercator vs area disponivel
+      const mercW = gx(maxLng) - gx(minLng);
+      const mercH = gy(minLat) - gy(maxLat);
+      const bboxAspect = mercW / mercH;
+      const drawAspect = drawW / drawH;
+      let finalW = drawW, finalH = drawH;
+      let xOff = 0, yOff = 0;
+      if (bboxAspect > drawAspect) {
+        finalH = drawW / bboxAspect;
+        yOff = (drawH - finalH) / 2;
+      } else {
+        finalW = drawH * bboxAspect;
+        xOff = (drawW - finalW) / 2;
+      }
+
+      const projX = (lng) => LM + pad + xOff + (gx(lng) - gx(minLng)) / mercW * finalW;
+      const projY = (lat) => y + pad + yOff + (gy(maxLat) - gy(lat)) / mercH * finalH;
 
       // Tenta baixar tiles OSM
       let mapOk = false;
@@ -365,17 +381,17 @@ exports.comprovante = async (req, res) => {
       } catch (_) {}
 
       if (mapOk) {
-        doc.rect(LM + pad, y + pad, drawW, drawH).lineWidth(0.5).stroke('#cccccc');
+        doc.rect(LM + pad + xOff, y + pad + yOff, finalW, finalH).lineWidth(0.5).stroke('#cccccc');
       } else {
-        doc.rect(LM, y, mapW, mapH).fillAndStroke('#f8f9fa', '#dee2e6');
+        doc.rect(LM + pad + xOff, y + pad + yOff, finalW, finalH).fillAndStroke('#f8f9fa', '#dee2e6');
         doc.fill('#000000');
         doc.strokeColor('#e9ecef').lineWidth(0.5);
         for (let i = 0; i <= 4; i++) {
           const f = i / 4;
           const lng2 = minLng + f * (maxLng - minLng);
           const lat2 = minLat + f * (maxLat - minLat);
-          doc.moveTo(projX(lng2), y + pad).lineTo(projX(lng2), y + mapH - pad).stroke();
-          doc.moveTo(LM + pad, projY(lat2)).lineTo(LM + mapW - pad, projY(lat2)).stroke();
+          doc.moveTo(projX(lng2), y + pad + yOff).lineTo(projX(lng2), y + pad + yOff + finalH).stroke();
+          doc.moveTo(LM + pad + xOff, projY(lat2)).lineTo(LM + pad + xOff + finalW, projY(lat2)).stroke();
         }
       }
 
@@ -395,7 +411,7 @@ exports.comprovante = async (req, res) => {
       doc.circle(dx, dy, mapOk ? 6 : 5).fillAndStroke('#ffffff', '#000000');
       doc.fill('#dc3545').fontSize(7).font('Helvetica-Bold').text('DESTINO', dx + (mapOk ? 9 : 8), dy - 5);
       doc.fill('#000000');
-      y += mapH + 10;
+      y += pad * 2 + finalH + 10;
     }
 
     // FOOTER
