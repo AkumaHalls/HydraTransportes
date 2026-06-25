@@ -296,7 +296,7 @@ exports.comprovante = async (req, res) => {
       doc.fontSize(10).fill(corPrin).font('Helvetica-Bold').text('ROTA', LM, y).fill('#000000');
       y += 18;
 
-      const coords = corrida.rotaGeoJSON.coordinates; // [lng, lat]
+      const coords = corrida.rotaGeoJSON.coordinates;
       const mapH = 200;
       const mapW = pageW;
       const pad = 25;
@@ -311,54 +311,81 @@ exports.comprovante = async (req, res) => {
         if (lng > maxLng) maxLng = lng;
       });
 
-      // padding de 10% nas bordas
       const latPad = (maxLat - minLat) * 0.1 || 0.005;
       const lngPad = (maxLng - minLng) * 0.1 || 0.005;
       minLat -= latPad; maxLat += latPad;
       minLng -= lngPad; maxLng += lngPad;
 
-      const projX = (lng) => LM + pad + (lng - minLng) / (maxLng - minLng) * drawW;
-      const projY = (lat) => y + pad + (maxLat - lat) / (maxLat - minLat) * drawH;
+      // Tenta baixar imagem do mapa OSM
+      let mapImgBuffer = null;
+      try {
+        const imgW = Math.round(drawW * 2.5);
+        const imgH = Math.round(drawH * 2.5);
+        const url = `https://render.openstreetmap.org/cgi-bin/export?bbox=${minLng},${minLat},${maxLng},${maxLat}&width=${imgW}&height=${imgH}&format=png`;
+        const axios = require('axios');
+        const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
+        if (resp.status === 200) mapImgBuffer = Buffer.from(resp.data);
+      } catch (_) {}
 
-      // Fundo
-      doc.rect(LM, y, mapW, mapH).fillAndStroke('#f8f9fa', '#dee2e6');
-      doc.fill('#000000');
-
-      // Grade sutil (linhas de bounding box)
-      doc.strokeColor('#e9ecef').lineWidth(0.5);
-      for (let i = 0; i <= 4; i++) {
-        const frac = i / 4;
-        const lng2 = minLng + frac * (maxLng - minLng);
-        const lat2 = minLat + frac * (maxLat - minLat);
-        const x = projX(lng2);
-        const y2 = projY(lat2);
-        doc.moveTo(x, y + pad).lineTo(x, y + mapH - pad).stroke();
-        doc.moveTo(LM + pad, y2).lineTo(LM + mapW - pad, y2).stroke();
+      if (mapImgBuffer) {
+        // Coloca a imagem do mapa como fundo
+        doc.image(mapImgBuffer, LM + pad, y + pad, { width: drawW, height: drawH });
+        // Borda ao redor do mapa
+        doc.rect(LM + pad, y + pad, drawW, drawH).lineWidth(0.5).stroke('#cccccc');
+        // Rota por cima da imagem
+        const imgProjX = (lng) => LM + pad + (lng - minLng) / (maxLng - minLng) * drawW;
+        const imgProjY = (lat) => y + pad + (maxLat - lat) / (maxLat - minLat) * drawH;
+        doc.strokeColor(corPrin).lineWidth(3).lineJoin('round').lineCap('round');
+        doc.moveTo(imgProjX(coords[0][0]), imgProjY(coords[0][1]));
+        for (let i = 1; i < coords.length; i++) {
+          doc.lineTo(imgProjX(coords[i][0]), imgProjY(coords[i][1]));
+        }
+        doc.stroke();
+        doc.strokeColor('#000000');
+        // Marcadores sobre a imagem
+        const ox = imgProjX(coords[0][0]), oy = imgProjY(coords[0][1]);
+        doc.circle(ox, oy, 6).fillAndStroke('#ffffff', '#000000');
+        doc.fill('#28a745').fontSize(7).font('Helvetica-Bold')
+          .text('ORIGEM', ox + 9, oy - 5);
+        const last = coords[coords.length - 1];
+        const dx = imgProjX(last[0]), dy = imgProjY(last[1]);
+        doc.circle(dx, dy, 6).fillAndStroke('#ffffff', '#000000');
+        doc.fill('#dc3545').fontSize(7).font('Helvetica-Bold')
+          .text('DESTINO', dx + 9, dy - 5);
+      } else {
+        // Fallback: fundo cinza + rota
+        doc.rect(LM, y, mapW, mapH).fillAndStroke('#f8f9fa', '#dee2e6');
+        doc.fill('#000000');
+        doc.strokeColor('#e9ecef').lineWidth(0.5);
+        for (let i = 0; i <= 4; i++) {
+          const frac = i / 4;
+          const lng2 = minLng + frac * (maxLng - minLng);
+          const lat2 = minLat + frac * (maxLat - minLat);
+          const x = LM + pad + (lng2 - minLng) / (maxLng - minLng) * drawW;
+          const y2 = y + pad + (maxLat - lat2) / (maxLat - minLat) * drawH;
+          doc.moveTo(x, y + pad).lineTo(x, y + mapH - pad).stroke();
+          doc.moveTo(LM + pad, y2).lineTo(LM + mapW - pad, y2).stroke();
+        }
+        doc.strokeColor('#000000');
+        const projX = (lng) => LM + pad + (lng - minLng) / (maxLng - minLng) * drawW;
+        const projY = (lat) => y + pad + (maxLat - lat) / (maxLat - minLat) * drawH;
+        doc.strokeColor(corPrin).lineWidth(2.5).lineJoin('round').lineCap('round');
+        doc.moveTo(projX(coords[0][0]), projY(coords[0][1]));
+        for (let i = 1; i < coords.length; i++) {
+          doc.lineTo(projX(coords[i][0]), projY(coords[i][1]));
+        }
+        doc.stroke();
+        doc.strokeColor('#000000');
+        const ox = projX(coords[0][0]), oy = projY(coords[0][1]);
+        doc.circle(ox, oy, 5).fillAndStroke('#28a745', '#ffffff');
+        doc.fill('#28a745').fontSize(7).font('Helvetica-Bold')
+          .text('ORIGEM', ox + 8, oy - 5);
+        const last = coords[coords.length - 1];
+        const dx = projX(last[0]), dy = projY(last[1]);
+        doc.circle(dx, dy, 5).fillAndStroke('#dc3545', '#ffffff');
+        doc.fill('#dc3545').fontSize(7).font('Helvetica-Bold')
+          .text('DESTINO', dx + 8, dy - 5);
       }
-      doc.strokeColor('#000000');
-
-      // Rota
-      doc.strokeColor(corPrin).lineWidth(2.5).lineJoin('round').lineCap('round');
-      doc.moveTo(projX(coords[0][0]), projY(coords[0][1]));
-      for (let i = 1; i < coords.length; i++) {
-        doc.lineTo(projX(coords[i][0]), projY(coords[i][1]));
-      }
-      doc.stroke();
-      doc.strokeColor('#000000');
-
-      // Marcador ORIGEM (verde)
-      const ox = projX(coords[0][0]), oy = projY(coords[0][1]);
-      doc.circle(ox, oy, 5).fillAndStroke('#28a745', '#ffffff');
-      doc.fill('#28a745').fontSize(7).font('Helvetica-Bold')
-        .text('ORIGEM', ox + 8, oy - 5);
-
-      // Marcador DESTINO (vermelho)
-      const last = coords[coords.length - 1];
-      const dx = projX(last[0]), dy = projY(last[1]);
-      doc.circle(dx, dy, 5).fillAndStroke('#dc3545', '#ffffff');
-      doc.fill('#dc3545').fontSize(7).font('Helvetica-Bold')
-        .text('DESTINO', dx + 8, dy - 5);
-
       doc.fill('#000000');
       y += mapH + 10;
     }
