@@ -1,0 +1,13 @@
+services:
+  bluemeter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bluemeter-web
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
