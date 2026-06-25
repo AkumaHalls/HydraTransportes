@@ -322,7 +322,7 @@ exports.comprovante = async (req, res) => {
         return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n * TS;
       };
       const projX = (lng) => LM + pad + (gx(lng) - gx(minLng)) / (gx(maxLng) - gx(minLng)) * drawW;
-      const projY = (lat) => y + pad + (gy(lat) - gy(minLat)) / (gy(maxLat) - gy(minLat)) * drawH;
+      const projY = (lat) => y + pad + (gy(maxLat) - gy(lat)) / (gy(maxLat) - gy(minLat)) * drawH;
 
       // Tenta baixar tiles OSM
       let mapOk = false;
