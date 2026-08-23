@@ -504,8 +504,6 @@ async function fetchSuggestions(query) {
 
   return [];
 }
-  return typeof mapboxgl !== 'undefined' && MAPBOX_TOKEN;
-}
 
 function isMapboxReady() {
   return typeof mapboxgl !== 'undefined' && MAPBOX_TOKEN;
