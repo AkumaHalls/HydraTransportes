@@ -109,21 +109,68 @@ exports.calcular = async (req, res) => {
     }
     waypoints.push(`${destCoords.lng},${destCoords.lat}`);
 
-    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${waypoints.join(';')}?overview=full&geometries=geojson&steps=true`;
-    const { data: routeData } = await axios.get(osrmUrl);
+    let distanciaKm, distanciaIda, distanciaVolta, tempoSeg, rotaGeoJSON;
 
-    if (!routeData.routes || !routeData.routes.length) {
-      return res.status(400).json({ error: 'Rota não encontrada' });
+    if (idaEVolta && paradasCoords.length > 0) {
+      // Duas chamadas OSRM: ida e volta separadas
+      const urlIda = `https://router.project-osrm.org/route/v1/driving/${waypoints.join(';')}?overview=full&geometries=geojson&steps=true`;
+
+      // Rota de volta: destino → paradas (reverso) → origem
+      const waypointsVolta = [`${destCoords.lng},${destCoords.lat}`];
+      for (let i = paradasCoords.length - 1; i >= 0; i--) {
+        waypointsVolta.push(`${paradasCoords[i].lng},${paradasCoords[i].lat}`);
+      }
+      waypointsVolta.push(`${origCoords.lng},${origCoords.lat}`);
+      const urlVolta = `https://router.project-osrm.org/route/v1/driving/${waypointsVolta.join(';')}?overview=full&geometries=geojson&steps=true`;
+
+      const [resIda, resVolta] = await Promise.all([
+        axios.get(urlIda),
+        axios.get(urlVolta)
+      ]);
+
+      if (!resIda.data.routes?.length || !resVolta.data.routes?.length) {
+        return res.status(400).json({ error: 'Rota não encontrada' });
+      }
+
+      const routeIda = resIda.data.routes[0];
+      const routeVolta = resVolta.data.routes[0];
+
+      distanciaIda = Math.round((routeIda.distance / 1000) * 100) / 100;
+      distanciaVolta = Math.round((routeVolta.distance / 1000) * 100) / 100;
+      distanciaKm = Math.round((distanciaIda + distanciaVolta) * 100) / 100;
+      tempoSeg = routeIda.duration + routeVolta.duration;
+      rotaGeoJSON = routeIda.geometry;
+    } else {
+      // Uma chamada OSRM (sem paradas, ou sem ida e volta)
+      const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${waypoints.join(';')}?overview=full&geometries=geojson&steps=true`;
+      const { data: routeData } = await axios.get(osrmUrl);
+
+      if (!routeData.routes || !routeData.routes.length) {
+        return res.status(400).json({ error: 'Rota não encontrada' });
+      }
+
+      const route = routeData.routes[0];
+      const distOneWay = route.distance / 1000;
+
+      if (idaEVolta) {
+        distanciaIda = Math.round(distOneWay * 100) / 100;
+        distanciaVolta = Math.round(distOneWay * 100) / 100;
+        distanciaKm = Math.round(distOneWay * 2 * 100) / 100;
+      } else {
+        distanciaIda = Math.round(distOneWay * 100) / 100;
+        distanciaVolta = 0;
+        distanciaKm = Math.round(distOneWay * 100) / 100;
+      }
+      tempoSeg = route.duration;
+      rotaGeoJSON = route.geometry;
     }
 
-    const route = routeData.routes[0];
-    const distanciaKm = (route.distance / 1000);
-    const tempoSeg = route.duration;
     const horas = Math.floor(tempoSeg / 3600);
     const minutos = Math.round((tempoSeg % 3600) / 60);
     const tempoEstimado = horas > 0 ? `${horas}h ${minutos}min` : `${minutos}min`;
 
-    const distanciaFinal = idaEVolta ? distanciaKm * 2 : distanciaKm;
+    const dias = parseInt(req.body.dias) || 1;
+    const distanciaFinal = distanciaKm;
 
     const valorPorKm = valores.valorPorKm || 2.5;
     const taxaFixa = valores.taxaFixa || 10;
@@ -138,7 +185,7 @@ exports.calcular = async (req, res) => {
     const totalParadas = paradasValidas.length;
     const valorParadas = totalParadas > 0 ? totalParadas * taxaPorParada : 0;
 
-    const valorTotal = (distanciaFinal * valorPorKm) + taxaFixa + valPedagio + valEspera + valAjudante + valAcrescimos + valorParadas - valDescontos;
+    const valorTotal = ((distanciaFinal * valorPorKm) + taxaFixa + valPedagio + valEspera + valAjudante + valAcrescimos + valorParadas - valDescontos) * dias;
 
     const corrida = await Corrida.create({
       cliente: cliente || '',
@@ -152,6 +199,9 @@ exports.calcular = async (req, res) => {
       destinoLat: destCoords.lat,
       destinoLng: destCoords.lng,
       distanciaKm: Math.round(distanciaKm * 100) / 100,
+      distanciaIda: Math.round(distanciaIda * 100) / 100,
+      distanciaVolta: Math.round(distanciaVolta * 100) / 100,
+      dias,
       tempoEstimado,
       idaEVolta: !!idaEVolta,
       valorPorKm,
@@ -163,7 +213,7 @@ exports.calcular = async (req, res) => {
       descontos: valDescontos,
       valorTotal: Math.round(valorTotal * 100) / 100,
       observacoes: observacoes || '',
-      rotaGeoJSON: route.geometry,
+      rotaGeoJSON: rotaGeoJSON,
       motoristaId: (config && config.motoristaId) || null,
       motoristaNome,
       paradas: paradasValidas,
@@ -174,6 +224,8 @@ exports.calcular = async (req, res) => {
     res.json({
       ...corrida.toObject(),
       distanciaFinal: Math.round(distanciaFinal * 100) / 100,
+      distanciaIda: Math.round(distanciaIda * 100) / 100,
+      distanciaVolta: Math.round(distanciaVolta * 100) / 100,
       valorParadas: Math.round(valorParadas * 100) / 100,
       config: config
     });
@@ -255,7 +307,10 @@ exports.dashboard = async (req, res) => {
 
     const total = corridas.length;
     const faturadoTotal = corridas.reduce((s, c) => s + (c.valorTotal || 0), 0);
-    const kmTotal = corridas.reduce((s, c) => s + ((c.distanciaKm || 0) * (c.idaEVolta ? 2 : 1)), 0);
+    const kmTotal = corridas.reduce((s, c) => {
+      if (c.distanciaIda && c.distanciaVolta) return s + c.distanciaIda + c.distanciaVolta;
+      return s + ((c.distanciaKm || 0) * (c.idaEVolta ? 2 : 1));
+    }, 0);
 
     const corridasMes = corridas.filter(c => new Date(c.createdAt) >= startOfMonth);
     const faturadoMes = corridasMes.reduce((s, c) => s + (c.valorTotal || 0), 0);
@@ -275,7 +330,7 @@ exports.dashboard = async (req, res) => {
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       faturamentoPorMes[key] = (faturamentoPorMes[key] || 0) + (c.valorTotal || 0);
       corridasPorMes[key] = (corridasPorMes[key] || 0) + 1;
-      kmPorMes[key] = (kmPorMes[key] || 0) + ((c.distanciaKm || 0) * (c.idaEVolta ? 2 : 1));
+      kmPorMes[key] = (kmPorMes[key] || 0) + (c.distanciaIda && c.distanciaVolta ? c.distanciaIda + c.distanciaVolta : ((c.distanciaKm || 0) * (c.idaEVolta ? 2 : 1)));
     });
 
     const labels = Object.keys(faturamentoPorMes).sort();

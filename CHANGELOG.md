@@ -5,6 +5,27 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.4.0] — 2026-08-23
+
+### Adicionado
+- **frontend/js/app.js** — Campo "Dias do Serviço" no formulário de corrida para orçamentos multi-dia
+- **backend/src/models/Corrida.js** — Novos campos: `distanciaIda`, `distanciaVolta`, `dias`
+- **frontend/js/app.js** — Função `waitForElement()` para aguardar DOM com timeout
+
+### Corrigido
+- **frontend/js/app.js** — `navigateTo()` agora retorna Promise (antes era void)
+- **frontend/js/app.js** — `verCorrida()` usa `await navigateTo()` + `await waitForElement()` em vez de `setTimeout(100ms)` que não esperava o DOM renderizar — dados do histórico agora aparecem ao clicar no olho
+- **frontend/js/app.js** — `editarCorrida()` usa `await navigateTo()` + `await waitForElement()` + agora preenche todos os campos: origem, destino, cliente, serviço, dias (antes só preenchia paradas e valores)
+- **backend/src/controllers/corridaController.js** — Cálculo de "ida e volta" com paradas agora faz **duas chamadas OSRM** (ida: origem→paradas→destino / volta: destino→paradas reverso→origem) em vez de simplesmente dobrar a distância — corrige cálculo que duplicava valor
+- **backend/src/controllers/corrController.js** — Valor total agora multiplica por `dias` quando serviço tem duração multi-dia
+- **backend/src/controllers/exportController.js** — PDF exibe distancia ida/volta separadas + campo dias
+- **backend/src/controllers/exportController.js** — CSV inclui colunas distanciaIda, distanciaVolta, distanciaTotal, dias
+- **backend/src/controllers/exportController.js** — Excel inclui colunas distanciaIda, distanciaVolta, distanciaTotal, dias
+- **backend/src/controllers/exportController.js** — Relatório PDF exibe distancia ida/volta separadas
+- **frontend/js/app.js** — Resultado do cálculo exibe ida/volta separadas + dias
+- **frontend/js/app.js** — Histórico exibe distância total correta (ida+volta)
+- **backend/src/controllers/corridaController.js** — Dashboard usa distanciaIda+distanciaVolta para cálculo de km total
+
 ## [1.3.3] - 2026-08-23
 
 ### Corrigido

@@ -20,7 +20,10 @@ exports.csv = async (req, res) => {
       Origem: c.origem,
       Destino: c.destino,
       Paradas: c.totalParadas > 0 ? (c.paradas || []).map(p => p.endereco).join('; ') : '',
-      Distancia_KM: c.distanciaKm,
+      Distancia_IDA: c.distanciaIda || c.distanciaKm,
+      Distancia_VOLTA: c.distanciaVolta || 0,
+      Distancia_Total: c.idaEVolta ? (c.distanciaIda || c.distanciaKm) + (c.distanciaVolta || 0) : (c.distanciaIda || c.distanciaKm),
+      Dias: c.dias || 1,
       Tempo: c.tempoEstimado,
       Valor_Por_KM: c.valorPorKm,
       Taxa_Fixa: c.taxaFixa,
@@ -66,7 +69,10 @@ exports.excel = async (req, res) => {
       { header: 'Origem', key: 'origem' },
       { header: 'Destino', key: 'destino' },
       { header: 'Paradas', key: 'paradas' },
-      { header: 'Distancia (KM)', key: 'distanciaKm' },
+      { header: 'Distancia Ida (KM)', key: 'distanciaIda' },
+      { header: 'Distancia Volta (KM)', key: 'distanciaVolta' },
+      { header: 'Distancia Total (KM)', key: 'distanciaTotal' },
+      { header: 'Dias', key: 'dias' },
       { header: 'Tempo', key: 'tempoEstimado' },
       { header: 'Valor/KM', key: 'valorPorKm' },
       { header: 'Taxa Fixa', key: 'taxaFixa' },
@@ -80,13 +86,18 @@ exports.excel = async (req, res) => {
     ];
 
     corridas.forEach(c => {
+      const dIda = c.distanciaIda || c.distanciaKm || 0;
+      const dVolta = c.distanciaVolta || 0;
       sheet.addRow({
         cliente: c.cliente,
         servico: c.servico,
         origem: c.origem,
         destino: c.destino,
         paradas: c.totalParadas > 0 ? (c.paradas || []).map(p => p.endereco).join('; ') : '',
-        distanciaKm: c.distanciaKm,
+        distanciaIda: dIda,
+        distanciaVolta: dVolta,
+        distanciaTotal: c.idaEVolta ? dIda + dVolta : dIda,
+        dias: c.dias || 1,
         tempoEstimado: c.tempoEstimado,
         valorPorKm: c.valorPorKm,
         taxaFixa: c.taxaFixa,
@@ -134,7 +145,10 @@ exports.pdfRelatorio = async (req, res) => {
 
     let totalGeral = 0;
     corridas.forEach(c => {
-      const distFinal = c.idaEVolta ? (c.distanciaKm * 2) : c.distanciaKm;
+      const dIda = c.distanciaIda || c.distanciaKm || 0;
+      const dVolta = c.distanciaVolta || 0;
+      const distFinal = c.idaEVolta ? dIda + dVolta : dIda;
+      const dias = c.dias || 1;
       doc.fontSize(9);
       doc.text(`Cliente: ${c.cliente || 'N/A'}  |  Servico: ${c.servico || 'N/A'}  |  Data: ${new Date(c.createdAt).toLocaleDateString('pt-BR')}`);
       doc.text(`Motorista: ${c.motoristaNome || 'N/A'}  ${c.idaEVolta ? '| Ida e Volta' : ''}`);
@@ -143,7 +157,10 @@ exports.pdfRelatorio = async (req, res) => {
       if (c.paradas && c.paradas.length > 0) {
         doc.text(`Paradas: ${c.paradas.map(p => p.endereco).join('; ')}`);
       }
-      doc.text(`Distancia: ${c.distanciaKm} km${c.idaEVolta ? ` (total percorrido: ${distFinal} km)` : ''}  |  Valor: R$ ${c.valorTotal?.toFixed(2) || '0,00'}`);
+      const distTxt = c.idaEVolta
+        ? `Distancia: ${dIda} km (ida) + ${dVolta} km (volta) = ${distFinal} km total`
+        : `Distancia: ${dIda} km`;
+      doc.text(`${distTxt}${dias > 1 ? `  |  Dias: ${dias}` : ''}  |  Valor: R$ ${c.valorTotal?.toFixed(2) || '0,00'}`);
       doc.moveDown(0.5);
       totalGeral += c.valorTotal || 0;
     });
@@ -297,8 +314,10 @@ exports.comprovante = async (req, res) => {
     const ajud = corrida.ajudante || 0;
     const acre = corrida.acrescimos || 0;
     const desc = corrida.descontos || 0;
-    const dist = corrida.distanciaKm || 0;
-    const distFinal = corrida.idaEVolta ? dist * 2 : dist;
+    const distIda = corrida.distanciaIda || corrida.distanciaKm || 0;
+    const distVolta = corrida.distanciaVolta || 0;
+    const distFinal = corrida.idaEVolta ? distIda + distVolta : distIda;
+    const dias = corrida.dias || 1;
     const total = corrida.valorTotal || 0;
 
     const linhaValor = (label, value, highlight) => {
@@ -310,13 +329,14 @@ exports.comprovante = async (req, res) => {
     };
 
     if (corrida.idaEVolta) {
-      linhaValor('Distancia (ida):', `${dist} km`);
-      linhaValor('Distancia (volta):', `${dist} km`);
+      linhaValor('Distancia (ida):', `${distIda} km`);
+      linhaValor('Distancia (volta):', `${distVolta} km`);
       linhaValor('Distancia total (ida e volta):', `${distFinal} km`);
     } else {
-      linhaValor('Distancia:', `${dist} km`);
+      linhaValor('Distancia:', `${distIda} km`);
     }
     linhaValor('Tempo estimado:', corrida.tempoEstimado || '-');
+    if (dias > 1) linhaValor('Dias:', `${dias}`);
     linhaValor('Valor por km:', `R$ ${vkm.toFixed(2)}`);
     if (tf > 0) linhaValor('Taxa Fixa:', `R$ ${tf.toFixed(2)}`);
     if (ped > 0) linhaValor('Pedagio:', `R$ ${ped.toFixed(2)}`);

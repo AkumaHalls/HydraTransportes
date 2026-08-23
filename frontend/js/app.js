@@ -55,6 +55,21 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function waitForElement(id, timeout = 3000) {
+  return new Promise((resolve, reject) => {
+    const el = document.getElementById(id);
+    if (el) return resolve(el);
+    const start = Date.now();
+    const check = () => {
+      const el = document.getElementById(id);
+      if (el) return resolve(el);
+      if (Date.now() - start > timeout) return reject(new Error('Elemento não encontrado: ' + id));
+      requestAnimationFrame(check);
+    };
+    check();
+  });
+}
+
 // Navigation
 document.querySelectorAll('[data-page]').forEach(el => {
   el.addEventListener('click', (e) => {
@@ -90,7 +105,8 @@ function navigateTo(page) {
     motoristas: renderMotoristas,
     config: renderConfig
   };
-  if (pages[page]) pages[page]();
+  if (pages[page]) return pages[page]();
+  return Promise.resolve();
 }
 
 // ====== DASHBOARD ======
@@ -240,6 +256,10 @@ async function renderCorridas() {
               <input class="form-check-input" type="checkbox" id="corridaIdaVolta">
               <label class="form-check-label">Ida e Volta</label>
             </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Dias do Serviço</label>
+            <input class="form-control" id="corridaDias" type="number" min="1" value="1">
           </div>
           <div class="col-md-6">
             <label class="form-label">Taxa por Parada (R$) <small class="text-muted">(config)</small></label>
@@ -777,6 +797,7 @@ async function calcularCorrida() {
     destinoLat: destinoInput.dataset.lat ? parseFloat(destinoInput.dataset.lat) : null,
     destinoLng: destinoInput.dataset.lng ? parseFloat(destinoInput.dataset.lng) : null,
     idaEVolta: document.getElementById('corridaIdaVolta').checked,
+    dias: parseInt(document.getElementById('corridaDias').value) || 1,
     pedagio: parseFloat(document.getElementById('corridaPedagio').value) || 0,
     espera: parseFloat(document.getElementById('corridaEspera').value) || 0,
     ajudante: parseFloat(document.getElementById('corridaAjudante').value) || 0,
@@ -803,7 +824,10 @@ async function calcularCorrida() {
   try {
     const result = await api('POST', '/corridas/calcular', data);
     ultimaCorrida = result;
+    const distIda = result.distanciaIda || result.distanciaKm;
+    const distVolta = result.distanciaVolta || 0;
     const distFinal = result.distanciaFinal || result.distanciaKm;
+    const dias = result.dias || 1;
     const cor = configCache?.personalizacao?.corPrincipal || '#0d6efd';
 
     const div = document.getElementById('resultadoCorrida');
@@ -813,14 +837,15 @@ async function calcularCorrida() {
         <h5><i class="bi bi-check-circle" style="color:${cor}"></i> Resultado do Cálculo</h5>
         <div class="result-box">
           ${result.idaEVolta ? `
-            <div class="result-item"><span>Distância (ida)</span><strong>${result.distanciaKm} km</strong></div>
-            <div class="result-item"><span>Distância (volta)</span><strong>${result.distanciaKm} km</strong></div>
+            <div class="result-item"><span>Distância (ida)</span><strong>${distIda} km</strong></div>
+            <div class="result-item"><span>Distância (volta)</span><strong>${distVolta} km</strong></div>
             <div class="result-item"><span>Distância total (ida e volta)</span><strong>${distFinal} km</strong></div>
           ` : `
             ${result.motoristaNome ? `<div class="result-item"><span>Motorista</span><strong>${escapeHtml(result.motoristaNome)}</strong></div>` : ''}
-          <div class="result-item"><span>Distância</span><strong>${result.distanciaKm} km</strong></div>
+            <div class="result-item"><span>Distância</span><strong>${distIda} km</strong></div>
           `}
           <div class="result-item"><span>Tempo Estimado</span><strong>${result.tempoEstimado}</strong></div>
+          ${dias > 1 ? `<div class="result-item"><span>Dias</span><strong>${dias}</strong></div>` : ''}
           <div class="result-item"><span>Valor por km</span><strong>${formatMoney(result.valorPorKm)}</strong></div>
           <div class="result-item"><span>Taxa Fixa</span><strong>${formatMoney(result.taxaFixa)}</strong></div>
           ${result.pedagio > 0 ? `<div class="result-item"><span>Pedágio</span><strong>${formatMoney(result.pedagio)}</strong></div>` : ''}
@@ -1038,18 +1063,23 @@ async function loadHistorico() {
       <thead><tr>
         <th>Cliente</th><th>Serviço</th><th>Data</th><th>Distância</th><th>Valor</th><th>Ações</th>
       </tr></thead><tbody>
-      ${list.map(c => `<tr>
+      ${list.map(c => {
+        const dIda = c.distanciaIda || c.distanciaKm || 0;
+        const dVolta = c.distanciaVolta || 0;
+        const distTotal = c.idaEVolta ? dIda + dVolta : dIda;
+        return `<tr>
         <td>${escapeHtml(c.cliente || '-')}</td>
         <td>${escapeHtml(c.servico || '-')}</td>
         <td>${formatDate(c.createdAt)}</td>
-        <td>${c.distanciaKm} km</td>
+        <td>${distTotal} km</td>
         <td>${formatMoney(c.valorTotal)}</td>
         <td class="table-actions">
           <button class="btn btn-sm btn-outline-primary" onclick="verCorrida('${c._id}')"><i class="bi bi-eye"></i></button>
           <button class="btn btn-sm btn-outline-warning" onclick="editarCorrida('${c._id}')"><i class="bi bi-pencil"></i></button>
           <button class="btn btn-sm btn-outline-danger" onclick="excluirCorrida('${c._id}')"><i class="bi bi-trash"></i></button>
         </td>
-      </tr>`).join('')}
+      </tr>`;
+      }).join('')}
     </tbody></table></div>`;
   } catch (err) {
     el.innerHTML = `<div class="alert alert-danger">${escapeHtml(err.message)}</div>`;
@@ -1060,62 +1090,98 @@ async function loadHistorico() {
 
 async function verCorrida(id) {
   const c = await api('GET', `/corridas/${id}`);
-  navigateTo('corridas');
-  setTimeout(() => {
-    const div = document.getElementById('resultadoCorrida');
-    if (div) {
-      ultimaCorrida = c;
-      const distFinal = (c.idaEVolta ? c.distanciaKm * 2 : c.distanciaKm);
-      div.classList.remove('d-none');
-      div.innerHTML = `
-        <div class="card p-3 mt-3">
-          <h5>Detalhes da Corrida</h5>
-          <div class="result-box">
-            <div class="result-item"><span>Cliente</span><strong>${escapeHtml(c.cliente || 'N/A')}</strong></div>
-            <div class="result-item"><span>Serviço</span><strong>${escapeHtml(c.servico || 'N/A')}</strong></div>
-            <div class="result-item"><span>Origem</span><strong>${escapeHtml(c.origem)}</strong></div>
-            <div class="result-item"><span>Destino</span><strong>${escapeHtml(c.destino)}</strong></div>
-            <div class="result-item"><span>Distância</span><strong>${c.distanciaKm} km</strong></div>
-            <div class="result-item"><span>Tempo</span><strong>${c.tempoEstimado}</strong></div>
-            <div class="result-item"><span>Valor por km</span><strong>${formatMoney(c.valorPorKm)}</strong></div>
-            <div class="result-item total"><span>Valor Total</span><strong>${formatMoney(c.valorTotal)}</strong></div>
-          </div>
-          <div id="resultMap" class="map-container mb-3"></div>
-          <div class="d-grid gap-2 d-md-flex">
-            <button class="btn btn-primary flex-fill" onclick="baixarPDF('${c._id}')"><i class="bi bi-filetype-pdf"></i> PDF</button>
-            <button class="btn whatsapp-btn flex-fill" onclick="compartilharWhatsApp('${c._id}')"><i class="bi bi-whatsapp"></i> WhatsApp</button>
-          </div>
-        </div>
-      `;
-      if (c.rotaGeoJSON) initResultMap(c);
-    }
-  }, 100);
+  await navigateTo('corridas');
+  await waitForElement('resultadoCorrida');
+
+  ultimaCorrida = c;
+  const distIda = c.distanciaIda || c.distanciaKm;
+  const distVolta = c.distanciaVolta || (c.idaEVolta ? distIda : 0);
+  const distFinal = c.idaEVolta ? distIda + distVolta : distIda;
+  const dias = c.dias || 1;
+  const cor = configCache?.personalizacao?.corPrincipal || '#0d6efd';
+
+  const div = document.getElementById('resultadoCorrida');
+  div.classList.remove('d-none');
+  div.innerHTML = `
+    <div class="card p-3 mt-3">
+      <h5><i class="bi bi-eye" style="color:${cor}"></i> Detalhes da Corrida</h5>
+      <div class="result-box">
+        <div class="result-item"><span>Cliente</span><strong>${escapeHtml(c.cliente || 'N/A')}</strong></div>
+        <div class="result-item"><span>Serviço</span><strong>${escapeHtml(c.servico || 'N/A')}</strong></div>
+        <div class="result-item"><span>Origem</span><strong>${escapeHtml(c.origem)}</strong></div>
+        <div class="result-item"><span>Destino</span><strong>${escapeHtml(c.destino)}</strong></div>
+        ${c.paradas && c.paradas.length > 0 ? c.paradas.map((p, i) => `<div class="result-item"><span>Parada ${i + 1}</span><strong>${escapeHtml(p.endereco)}</strong></div>`).join('') : ''}
+        ${c.idaEVolta ? `
+          <div class="result-item"><span>Distância (ida)</span><strong>${distIda} km</strong></div>
+          <div class="result-item"><span>Distância (volta)</span><strong>${distVolta} km</strong></div>
+          <div class="result-item"><span>Distância total</span><strong>${distFinal} km</strong></div>
+        ` : `
+          <div class="result-item"><span>Distância</span><strong>${distIda} km</strong></div>
+        `}
+        <div class="result-item"><span>Tempo estimado</span><strong>${c.tempoEstimado || '-'}</strong></div>
+        ${dias > 1 ? `<div class="result-item"><span>Dias</span><strong>${dias}</strong></div>` : ''}
+        <div class="result-item"><span>Valor por km</span><strong>${formatMoney(c.valorPorKm)}</strong></div>
+        ${c.taxaFixa > 0 ? `<div class="result-item"><span>Taxa Fixa</span><strong>${formatMoney(c.taxaFixa)}</strong></div>` : ''}
+        ${c.pedagio > 0 ? `<div class="result-item"><span>Pedágio</span><strong>${formatMoney(c.pedagio)}</strong></div>` : ''}
+        ${c.espera > 0 ? `<div class="result-item"><span>Espera</span><strong>${formatMoney(c.espera)}</strong></div>` : ''}
+        ${c.ajudante > 0 ? `<div class="result-item"><span>Ajudante</span><strong>${formatMoney(c.ajudante)}</strong></div>` : ''}
+        ${c.totalParadas > 0 ? `<div class="result-item"><span>Paradas (${c.totalParadas}x)</span><strong>${formatMoney(c.totalParadas * (c.taxaPorParada || 0))}</strong></div>` : ''}
+        ${c.acrescimos > 0 ? `<div class="result-item"><span>Acréscimos</span><strong>${formatMoney(c.acrescimos)}</strong></div>` : ''}
+        ${c.descontos > 0 ? `<div class="result-item"><span>Descontos</span><strong>-${formatMoney(c.descontos)}</strong></div>` : ''}
+        <div class="result-item total"><span>Valor Total</span><strong>${formatMoney(c.valorTotal)}</strong></div>
+      </div>
+      <div id="resultMap" class="map-container mb-3"></div>
+      <div class="d-grid gap-2 d-md-flex">
+        <button class="btn btn-primary flex-fill" onclick="baixarPDF('${c._id}')"><i class="bi bi-filetype-pdf"></i> PDF</button>
+        <button class="btn whatsapp-btn flex-fill" onclick="compartilharWhatsApp('${c._id}')"><i class="bi bi-whatsapp"></i> WhatsApp</button>
+      </div>
+    </div>
+  `;
+  if (c.rotaGeoJSON) initResultMap(c);
 }
 
 async function editarCorrida(id) {
   const c = await api('GET', `/corridas/${id}`);
-  navigateTo('corridas');
-  setTimeout(() => {
-    const sel = document.getElementById('corridaServico');
-    document.getElementById('corridaOrigem').value = c.origem || '';
-    document.getElementById('corridaDestino').value = c.destino || '';
-    document.getElementById('corridaIdaVolta').checked = c.idaEVolta || false;
-    document.getElementById('corridaPedagio').value = c.pedagio || 0;
-    document.getElementById('corridaEspera').value = c.espera || 0;
-    document.getElementById('corridaAjudante').value = c.ajudante || 0;
-    document.getElementById('corridaAcrescimos').value = c.acrescimos || 0;
-    document.getElementById('corridaDescontos').value = c.descontos || 0;
-    document.getElementById('corridaObs').value = c.observacoes || '';
+  await navigateTo('corridas');
+  await waitForElement('corridaOrigem');
 
-    // Recarregar paradas
-    const container = document.getElementById('paradasContainer');
-    if (container) container.innerHTML = '';
-    if (c.paradas && c.paradas.length > 0) {
-      c.paradas.forEach(p => {
-        if (p.endereco) addParadaField(p.endereco);
-      });
-    }
-  }, 100);
+  document.getElementById('corridaOrigem').value = c.origem || '';
+  document.getElementById('corridaDestino').value = c.destino || '';
+  document.getElementById('corridaIdaVolta').checked = c.idaEVolta || false;
+  document.getElementById('corridaDias').value = c.dias || 1;
+  document.getElementById('corridaPedagio').value = c.pedagio || 0;
+  document.getElementById('corridaEspera').value = c.espera || 0;
+  document.getElementById('corridaAjudante').value = c.ajudante || 0;
+  document.getElementById('corridaAcrescimos').value = c.acrescimos || 0;
+  document.getElementById('corridaDescontos').value = c.descontos || 0;
+  document.getElementById('corridaObs').value = c.observacoes || '';
+
+  // Preencher cliente
+  if (c.cliente) {
+    const clientSelect = document.getElementById('corridaCliente');
+    const clientOpts = Array.from(clientSelect.options);
+    const match = clientOpts.find(o => o.dataset.nome === c.cliente || o.value === c.cliente);
+    if (match) clientSelect.value = match.value;
+  }
+
+  // Preencher serviço
+  if (c.servico) {
+    const servSelect = document.getElementById('corridaServico');
+    const servOpts = Array.from(servSelect.options);
+    const match = servOpts.find(o => o.value === c.servico);
+    if (match) servSelect.value = match.value;
+  }
+
+  // Recarregar paradas
+  const container = document.getElementById('paradasContainer');
+  if (container) container.innerHTML = '';
+  if (c.paradas && c.paradas.length > 0) {
+    c.paradas.forEach(p => {
+      if (p.endereco) addParadaField(p.endereco);
+    });
+  }
+
+  showToast('Corrida carregada para edição. Altere os campos e clique em Calcular.');
 }
 
 async function excluirCorrida(id) {
