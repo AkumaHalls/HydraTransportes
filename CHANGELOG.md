@@ -5,6 +5,27 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.4.2] — 2026-08-23
+
+### Adicionado
+- **backend/tests/calcular.test.js** — Suíte de 12 testes do cálculo real (`node tests/calcular.test.js`): ida simples, ida/volta sem e com paradas, coordenadas de paradas, clamps de dias/desconto, piso de total, erros OSRM amigáveis e persistência
+- **backend/src/controllers/corridaController.js** — Paradas agora aceitam `lat`/`lng` do frontend: usa o ponto exato selecionado no autocomplete/mapa em vez de re-geocodificar o texto
+
+### Corrigido
+- **frontend/js/app.js** — Autocomplete truncava endereço ao selecionar (`split(',')[0]` jogava só "Rua X" sem número/bairro no campo) — agora preenche o endereço completo
+- **frontend/js/app.js** — Caixa de sugestões reabria após seleção (redispatch de evento `input`) — removido; preview renderiza direto das coordenadas selecionadas
+- **frontend/js/app.js** — Preview do mapa mostrava lugar errado (re-geocodificava texto truncado) — novo helper `renderPreview()` unificado para origem/destino/paradas/seletor de mapa
+- **frontend/js/app.js** — Coordenadas antigas persistiam ao editar texto manualmente (risco de calcular com ponto desatualizado) — dataset limpo a cada digitação
+- **frontend/js/app.js** — `escapeHtml` não escapava aspas (quebraria atributos com `"` no endereço)
+- **frontend/js/app.js** — Mapas de preview vazavam memória ao navegar entre páginas — destruídos a cada render
+- **frontend/js/app.js** — Taxa Fixa R$0 aparecia no resultado (PDF já era condicional) — agora consistente
+- **frontend/js/app.js** — Formulário clampeia `dias >= 1` e valores monetários `>= 0`
+- **backend/src/controllers/corridaController.js** — `dias = -5` gerava valor total NEGATIVO — clampeado `Math.max(1, ...)`
+- **backend/src/controllers/corridaController.js** — Desconto negativo virava acréscimo na fórmula — clampado `>= 0`; total tem piso em R$ 0
+- **backend/src/controllers/corridaController.js** — Chamadas OSRM sem timeout travavam o spinner infinitamente — adicionado timeout de 15s
+- **backend/src/controllers/corridaController.js** — Erros genéricos de rede vazavam crus (`getaddrinfo ENOTFOUND`) — novo helper `fetchOsrmRoute()` com mensagens amigáveis por tipo de falha
+- **backend/src/controllers/corridaController.js** — Removido `steps=true` do OSRM (payload gigante desnecessário)
+
 ## [1.4.0] — 2026-08-23
 
 ### Adicionado

@@ -52,7 +52,7 @@ function escapeHtml(str) {
   if (!str) return '';
   const div = document.createElement('div');
   div.textContent = str;
-  return div.innerHTML;
+  return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function waitForElement(id, timeout = 3000) {
@@ -205,6 +205,8 @@ async function renderDashboard() {
 // ====== CORRIDAS (Nova Corrida) ======
 async function renderCorridas() {
   const el = document.getElementById('pageContent');
+  Object.values(previewMaps).forEach(m => { try { m.remove(); } catch (_) {} });
+  previewMaps = {};
   try {
     const [config, clients, services] = await Promise.all([
       loadConfig(), api('GET', '/clients'), api('GET', '/services')
@@ -310,19 +312,33 @@ async function renderCorridas() {
 
     document.getElementById('btnCalcular').addEventListener('click', calcularCorrida);
 
-    setupAutocomplete('corridaOrigem', 'origem');
-    setupAutocomplete('corridaDestino', 'destino');
-
-    let origTimeout, destTimeout;
-    document.getElementById('corridaOrigem').addEventListener('input', (e) => {
-      clearTimeout(origTimeout);
-      if (e.target.value.length < 5) { document.getElementById('origemMap').style.display = 'none'; document.getElementById('origemPreview').innerHTML = ''; return; }
-      origTimeout = setTimeout(() => previewAddress(e.target.value, 'origem'), 1200);
+    setupAutocomplete('corridaOrigem', 'origem', (loc) => {
+      renderPreview('origemMap', 'origemPreview', loc, '#0d6efd', 'Origem');
     });
-    document.getElementById('corridaDestino').addEventListener('input', (e) => {
+    setupAutocomplete('corridaDestino', 'destino', (loc) => {
+      renderPreview('destinoMap', 'destinoPreview', loc, '#dc3545', 'Destino');
+    });
+
+    const origemEl = document.getElementById('corridaOrigem');
+    const destinoEl = document.getElementById('corridaDestino');
+    let origTimeout, destTimeout;
+    origemEl.addEventListener('input', () => {
+      clearTimeout(origTimeout);
+      if (origemEl.value.trim().length < 5) {
+        document.getElementById('origemMap').style.display = 'none';
+        document.getElementById('origemPreview').innerHTML = '';
+        return;
+      }
+      origTimeout = setTimeout(() => geocodeIntoDataset(origemEl, 'origemMap', 'origemPreview', '#0d6efd', 'Origem'), 1200);
+    });
+    destinoEl.addEventListener('input', () => {
       clearTimeout(destTimeout);
-      if (e.target.value.length < 5) { document.getElementById('destinoMap').style.display = 'none'; document.getElementById('destinoPreview').innerHTML = ''; return; }
-      destTimeout = setTimeout(() => previewAddress(e.target.value, 'destino'), 1200);
+      if (destinoEl.value.trim().length < 5) {
+        document.getElementById('destinoMap').style.display = 'none';
+        document.getElementById('destinoPreview').innerHTML = '';
+        return;
+      }
+      destTimeout = setTimeout(() => geocodeIntoDataset(destinoEl, 'destinoMap', 'destinoPreview', '#dc3545', 'Destino'), 1200);
     });
 
     document.getElementById('pickOrigemMap').addEventListener('click', () => openMapPicker('origem'));
@@ -424,15 +440,6 @@ async function geocodeAddress(address) {
   }
 
   const variations = generateAddressVariations(address);
-  
-  for (const variation of variations) {
-    const results = await tryGeocodeProviders(variation, { limit: 1 });
-    if (results.length) {
-      const best = results.sort((a, b) => b.importance - a.importance)[0];
-      GEOCODE_CACHE.set(cacheKey, { data: best, ts: Date.now() });
-      return best;
-    }
-  }
 
   for (const variation of variations) {
     const results = await tryGeocodeProviders(variation, { limit: 1 });
@@ -529,6 +536,65 @@ function isMapboxReady() {
   return typeof mapboxgl !== 'undefined' && MAPBOX_TOKEN;
 }
 
+function cleanDisplayName(name) {
+  return String(name || '').replace(/,\s*(Brasil|Brazil)\s*$/i, '');
+}
+
+function renderPreview(mapId, previewId, loc, color, label) {
+  const pv = document.getElementById(previewId);
+  if (pv) pv.innerHTML = `<small class="text-success"><i class="bi bi-check-circle"></i> ${escapeHtml(cleanDisplayName(loc.display_name))}</small>`;
+  const mapEl = document.getElementById(mapId);
+  if (!mapEl) return;
+  const lon = loc.lon ?? loc.lng;
+  if (!isMapboxReady()) { mapEl.style.display = 'none'; return; }
+  mapEl.style.display = 'block';
+  if (previewMaps[mapId]) { previewMaps[mapId].remove(); }
+  previewMaps[mapId] = new mapboxgl.Map({
+    container: mapId,
+    style: 'mapbox://styles/mapbox/streets-v12',
+    center: [lon, loc.lat],
+    zoom: 15,
+    interactive: false
+  });
+  new mapboxgl.Marker({ color })
+    .setLngLat([lon, loc.lat])
+    .setPopup(new mapboxgl.Popup().setHTML(label))
+    .addTo(previewMaps[mapId]);
+}
+
+async function geocodeIntoDataset(inputEl, mapId, previewId, color, label) {
+  const query = inputEl.value.trim();
+  if (query.length < 5) {
+    delete inputEl.dataset.lat;
+    delete inputEl.dataset.lng;
+    const pv = document.getElementById(previewId);
+    if (pv) pv.innerHTML = '';
+    const mapEl = document.getElementById(mapId);
+    if (mapEl) mapEl.style.display = 'none';
+    return;
+  }
+  try {
+    const loc = await geocodeAddress(query);
+    if (inputEl.value.trim() !== query) return;
+    if (!loc) {
+      delete inputEl.dataset.lat;
+      delete inputEl.dataset.lng;
+      const pv = document.getElementById(previewId);
+      if (pv) pv.innerHTML = '<small class="text-danger">Endereço não encontrado</small>';
+      const mapEl = document.getElementById(mapId);
+      if (mapEl) mapEl.style.display = 'none';
+      return;
+    }
+    inputEl.dataset.lat = loc.lat;
+    inputEl.dataset.lng = loc.lon ?? loc.lng;
+    renderPreview(mapId, previewId, loc, color, label);
+  } catch (_) {
+    const pv = document.getElementById(previewId);
+    if (pv) pv.innerHTML = '<small class="text-muted">Erro ao buscar endereço</small>';
+  }
+}
+
+
 let mapPickerModal = null;
 let mapPickerMap = null;
 let mapPickerMarker = null;
@@ -589,8 +655,10 @@ function openMapPicker(type) {
         input.value = addressName;
         input.dataset.lat = lat;
         input.dataset.lng = lng;
-        document.getElementById(previewId).innerHTML = `<small class="text-success"><i class="bi bi-check-circle"></i> ${escapeHtml(addressName)} (selecionado no mapa)</small>`;
-        input.dispatchEvent(new Event('input'));
+        renderPreview(previewId === 'origemPreview' ? 'origemMap' : 'destinoMap', previewId,
+          { lat, lon: lng, display_name: addressName },
+          previewId === 'origemPreview' ? '#0d6efd' : '#dc3545',
+          previewId === 'origemPreview' ? 'Origem' : 'Destino');
         mapPickerModal.hide();
       });
 
@@ -615,39 +683,7 @@ function openMapPicker(type) {
   }
 }
 
-async function previewAddress(address, type) {
-  const mapId = type + 'Map';
-  const previewId = type + 'Preview';
-  try {
-    const loc = await geocodeAddress(address);
-    if (!loc) {
-      document.getElementById(previewId).innerHTML = '<small class="text-danger">Endereço não encontrado</small>';
-      document.getElementById(mapId).style.display = 'none';
-      return;
-    }
-    document.getElementById(previewId).innerHTML = `<small class="text-success"><i class="bi bi-check-circle"></i> ${escapeHtml(loc.display_name.split(',')[0])}</small>`;
-
-    if (!isMapboxReady()) { document.getElementById(mapId).style.display = 'none'; return; }
-    const mapEl = document.getElementById(mapId);
-    mapEl.style.display = 'block';
-    if (previewMaps[type]) { previewMaps[type].remove(); }
-    previewMaps[type] = new mapboxgl.Map({
-      container: mapId,
-      style: 'mapbox://styles/mapbox/streets-v12',
-      center: [loc.lon, loc.lat],
-      zoom: 15,
-      interactive: false
-    });
-    new mapboxgl.Marker({ color: type === 'origem' ? '#0d6efd' : '#dc3545' })
-      .setLngLat([loc.lon, loc.lat])
-      .setPopup(new mapboxgl.Popup().setHTML(type === 'origem' ? 'Origem' : 'Destino'))
-      .addTo(previewMaps[type]);
-  } catch (e) {
-    document.getElementById(previewId).innerHTML = '<small class="text-muted">Erro ao buscar endereço</small>';
-  }
-}
-
-function setupAutocomplete(inputId, type) {
+function setupAutocomplete(inputId, type, onSelect) {
   const input = document.getElementById(inputId);
   const suggestionsEl = document.getElementById(type.includes('Suggestions') ? type : type + 'Suggestions');
   if (!input || !suggestionsEl) return;
@@ -657,6 +693,8 @@ function setupAutocomplete(inputId, type) {
   input.addEventListener('input', () => {
     clearTimeout(acTimeout);
     selectedIndex = -1;
+    delete input.dataset.lat;
+    delete input.dataset.lng;
     const val = input.value.trim();
     if (val.length < 3) { suggestionsEl.style.display = 'none'; return; }
     acTimeout = setTimeout(async () => {
@@ -671,28 +709,41 @@ function setupAutocomplete(inputId, type) {
     }, 300);
   });
 
-  suggestionsEl.addEventListener('click', (e) => {
-    const item = e.target.closest('.suggestion-item');
-    if (!item) return;
-    input.value = item.dataset.display.split(',')[0].trim();
+  function selectItem(item) {
+    input.value = cleanDisplayName(item.dataset.display);
     input.dataset.lat = item.dataset.lat;
     input.dataset.lng = item.dataset.lon;
     suggestionsEl.style.display = 'none';
-    input.dispatchEvent(new Event('input'));
+    if (onSelect) {
+      onSelect({
+        lat: parseFloat(item.dataset.lat),
+        lon: parseFloat(item.dataset.lon),
+        display_name: item.dataset.display
+      });
+    }
+  }
+
+  suggestionsEl.addEventListener('click', (e) => {
+    const item = e.target.closest('.suggestion-item');
+    if (!item) return;
+    selectItem(item);
   });
 
   input.addEventListener('keydown', (e) => {
     const items = suggestionsEl.querySelectorAll('.suggestion-item');
-    if (!items.length) return;
+    if (!items.length) {
+      if (e.key === 'Enter') e.preventDefault();
+      return;
+    }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       selectedIndex = Math.max(selectedIndex - 1, 0);
-    } else if (e.key === 'Enter' && selectedIndex >= 0) {
+    } else if (e.key === 'Enter') {
       e.preventDefault();
-      items[selectedIndex].click();
+      selectItem(items[selectedIndex >= 0 ? selectedIndex : 0]);
       return;
     } else return;
     items.forEach((el, i) => el.classList.toggle('active', i === selectedIndex));
@@ -705,43 +756,9 @@ function setupAutocomplete(inputId, type) {
   });
 }
 
-let paradaMaps = {};
-
-async function previewParada(address, idx) {
-  const mapId = `paradaMap_${idx}`;
-  const previewId = `paradaPreview_${idx}`;
-  try {
-    const loc = await geocodeAddress(address);
-    if (!loc) {
-      document.getElementById(previewId).innerHTML = '<small class="text-danger">Endereço não encontrado</small>';
-      document.getElementById(mapId).style.display = 'none';
-      return;
-    }
-    document.getElementById(previewId).innerHTML = `<small class="text-success"><i class="bi bi-check-circle"></i> ${escapeHtml(loc.display_name.split(',')[0])}</small>`;
-
-    if (!isMapboxReady()) { document.getElementById(mapId).style.display = 'none'; return; }
-    const mapEl = document.getElementById(mapId);
-    mapEl.style.display = 'block';
-    if (paradaMaps[idx]) { paradaMaps[idx].remove(); }
-    paradaMaps[idx] = new mapboxgl.Map({
-      container: mapId,
-      style: 'mapbox://styles/mapbox/streets-v12',
-      center: [loc.lon, loc.lat],
-      zoom: 15,
-      interactive: false
-    });
-    new mapboxgl.Marker({ color: '#ffc107' })
-      .setLngLat([loc.lon, loc.lat])
-      .setPopup(new mapboxgl.Popup().setHTML(`Parada ${idx + 1}`))
-      .addTo(paradaMaps[idx]);
-  } catch (e) {
-    document.getElementById(previewId).innerHTML = '<small class="text-muted">Erro ao buscar endereço</small>';
-  }
-}
-
 let paradaIndex = 0;
 
-function addParadaField(endereco) {
+function addParadaField(endereco, lat, lng) {
   const container = document.getElementById('paradasContainer');
   const idx = paradaIndex++;
   const div = document.createElement('div');
@@ -760,17 +777,27 @@ function addParadaField(endereco) {
   `;
   container.appendChild(div);
 
-  setupAutocomplete(`paradaEndereco_${idx}`, `paradaSuggestions_${idx}`);
+  const inputEl = document.getElementById(`paradaEndereco_${idx}`);
+  if (lat && lng) {
+    inputEl.dataset.lat = lat;
+    inputEl.dataset.lng = lng;
+  }
+
+  setupAutocomplete(`paradaEndereco_${idx}`, `paradaSuggestions_${idx}`, (loc) => {
+    renderPreview(`paradaMap_${idx}`, `paradaPreview_${idx}`, loc, '#ffc107', `Parada ${idx + 1}`);
+  });
 
   let paradaTimeout;
-  document.getElementById(`paradaEndereco_${idx}`).addEventListener('input', (e) => {
+  inputEl.addEventListener('input', () => {
     clearTimeout(paradaTimeout);
-    if (e.target.value.length < 5) {
-      document.getElementById(`paradaMap_${idx}`).style.display = 'none';
-      document.getElementById(`paradaPreview_${idx}`).innerHTML = '';
+    if (inputEl.value.trim().length < 5) {
+      const mapEl = document.getElementById(`paradaMap_${idx}`);
+      if (mapEl) mapEl.style.display = 'none';
+      const pv = document.getElementById(`paradaPreview_${idx}`);
+      if (pv) pv.innerHTML = '';
       return;
     }
-    paradaTimeout = setTimeout(() => previewParada(e.target.value, idx), 1200);
+    paradaTimeout = setTimeout(() => geocodeIntoDataset(inputEl, `paradaMap_${idx}`, `paradaPreview_${idx}`, '#ffc107', `Parada ${idx + 1}`), 1200);
   });
 }
 
@@ -797,21 +824,26 @@ async function calcularCorrida() {
     destinoLat: destinoInput.dataset.lat ? parseFloat(destinoInput.dataset.lat) : null,
     destinoLng: destinoInput.dataset.lng ? parseFloat(destinoInput.dataset.lng) : null,
     idaEVolta: document.getElementById('corridaIdaVolta').checked,
-    dias: parseInt(document.getElementById('corridaDias').value) || 1,
-    pedagio: parseFloat(document.getElementById('corridaPedagio').value) || 0,
-    espera: parseFloat(document.getElementById('corridaEspera').value) || 0,
-    ajudante: parseFloat(document.getElementById('corridaAjudante').value) || 0,
-    acrescimos: parseFloat(document.getElementById('corridaAcrescimos').value) || 0,
-    descontos: parseFloat(document.getElementById('corridaDescontos').value) || 0,
+    dias: Math.max(1, parseInt(document.getElementById('corridaDias').value) || 1),
+    pedagio: Math.max(0, parseFloat(document.getElementById('corridaPedagio').value) || 0),
+    espera: Math.max(0, parseFloat(document.getElementById('corridaEspera').value) || 0),
+    ajudante: Math.max(0, parseFloat(document.getElementById('corridaAjudante').value) || 0),
+    acrescimos: Math.max(0, parseFloat(document.getElementById('corridaAcrescimos').value) || 0),
+    descontos: Math.max(0, parseFloat(document.getElementById('corridaDescontos').value) || 0),
     observacoes: document.getElementById('corridaObs').value,
     paradas: []
   };
 
-  // Coletar paradas
+  // Coletar paradas (com coordenadas se selecionadas via autocomplete/mapa)
   document.querySelectorAll('.parada-row').forEach(row => {
     const input = row.querySelector('.parada-endereco');
     if (input && input.value.trim()) {
-      data.paradas.push({ endereco: input.value.trim(), valorParada: 0 });
+      data.paradas.push({
+        endereco: input.value.trim(),
+        valorParada: 0,
+        lat: input.dataset.lat ? parseFloat(input.dataset.lat) : null,
+        lng: input.dataset.lng ? parseFloat(input.dataset.lng) : null
+      });
     }
   });
 
@@ -847,7 +879,7 @@ async function calcularCorrida() {
           <div class="result-item"><span>Tempo Estimado</span><strong>${result.tempoEstimado}</strong></div>
           ${dias > 1 ? `<div class="result-item"><span>Dias</span><strong>${dias}</strong></div>` : ''}
           <div class="result-item"><span>Valor por km</span><strong>${formatMoney(result.valorPorKm)}</strong></div>
-          <div class="result-item"><span>Taxa Fixa</span><strong>${formatMoney(result.taxaFixa)}</strong></div>
+          ${result.taxaFixa > 0 ? `<div class="result-item"><span>Taxa Fixa</span><strong>${formatMoney(result.taxaFixa)}</strong></div>` : ''}
           ${result.pedagio > 0 ? `<div class="result-item"><span>Pedágio</span><strong>${formatMoney(result.pedagio)}</strong></div>` : ''}
           ${result.espera > 0 ? `<div class="result-item"><span>Espera</span><strong>${formatMoney(result.espera)}</strong></div>` : ''}
           ${result.ajudante > 0 ? `<div class="result-item"><span>Ajudante</span><strong>${formatMoney(result.ajudante)}</strong></div>` : ''}
@@ -1145,8 +1177,12 @@ async function editarCorrida(id) {
   await navigateTo('corridas');
   await waitForElement('corridaOrigem');
 
-  document.getElementById('corridaOrigem').value = c.origem || '';
-  document.getElementById('corridaDestino').value = c.destino || '';
+  const origemEl = document.getElementById('corridaOrigem');
+  const destinoEl = document.getElementById('corridaDestino');
+  origemEl.value = c.origem || '';
+  destinoEl.value = c.destino || '';
+  if (c.origemLat && c.origemLng) { origemEl.dataset.lat = c.origemLat; origemEl.dataset.lng = c.origemLng; }
+  if (c.destinoLat && c.destinoLng) { destinoEl.dataset.lat = c.destinoLat; destinoEl.dataset.lng = c.destinoLng; }
   document.getElementById('corridaIdaVolta').checked = c.idaEVolta || false;
   document.getElementById('corridaDias').value = c.dias || 1;
   document.getElementById('corridaPedagio').value = c.pedagio || 0;
@@ -1172,12 +1208,12 @@ async function editarCorrida(id) {
     if (match) servSelect.value = match.value;
   }
 
-  // Recarregar paradas
+  // Recarregar paradas (com coordenadas salvas)
   const container = document.getElementById('paradasContainer');
   if (container) container.innerHTML = '';
   if (c.paradas && c.paradas.length > 0) {
     c.paradas.forEach(p => {
-      if (p.endereco) addParadaField(p.endereco);
+      if (p.endereco) addParadaField(p.endereco, p.lat, p.lng);
     });
   }
 

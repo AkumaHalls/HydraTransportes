@@ -58,6 +58,26 @@ async function geocodeAddress(address) {
   throw new Error(`Endereço não encontrado: ${address}`);
 }
 
+async function fetchOsrmRoute(url) {
+  let data;
+  try {
+    const resp = await axios.get(url, { timeout: 15000 });
+    data = resp.data;
+  } catch (err) {
+    if (err.response) {
+      throw new Error(`Serviço de rotas retornou erro ${err.response.status}. Tente novamente em instantes.`);
+    }
+    if (err.code === 'ECONNABORTED' || /timeout/i.test(err.message)) {
+      throw new Error('Serviço de rotas demorou demais para responder. Tente novamente.');
+    }
+    throw new Error('Falha de conexão com o serviço de rotas. Verifique sua internet e tente novamente.');
+  }
+  if (!data.routes || !data.routes.length) {
+    throw new Error('Rota não encontrada entre os pontos informados');
+  }
+  return data.routes[0];
+}
+
 exports.calcular = async (req, res) => {
   try {
     const { origem, destino, origemLat, origemLng, destinoLat, destinoLng, idaEVolta, pedagio, espera, ajudante, acrescimos, descontos, cliente, servico, clienteId, servicoId, observacoes, paradas } = req.body;
@@ -85,13 +105,20 @@ exports.calcular = async (req, res) => {
       destCoords = await geocodeAddress(destino);
     }
 
-    // Geocode paradas
+    // Geocode paradas (usa coordenadas fornecidas se existirem, senão geocodifica)
     const paradasCoords = [];
     const paradasValidas = [];
     if (paradas && Array.isArray(paradas) && paradas.length > 0) {
       for (const p of paradas) {
         if (!p.endereco || !p.endereco.trim()) continue;
-        const coords = await geocodeAddress(p.endereco);
+        let coords;
+        const pLat = parseFloat(p.lat);
+        const pLng = parseFloat(p.lng);
+        if (!isNaN(pLat) && !isNaN(pLng) && pLat !== 0 && pLng !== 0) {
+          coords = { lat: pLat, lng: pLng };
+        } else {
+          coords = await geocodeAddress(p.endereco);
+        }
         paradasCoords.push(coords);
         paradasValidas.push({
           endereco: p.endereco,
@@ -113,7 +140,7 @@ exports.calcular = async (req, res) => {
 
     if (idaEVolta && paradasCoords.length > 0) {
       // Duas chamadas OSRM: ida e volta separadas
-      const urlIda = `https://router.project-osrm.org/route/v1/driving/${waypoints.join(';')}?overview=full&geometries=geojson&steps=true`;
+      const urlIda = `https://router.project-osrm.org/route/v1/driving/${waypoints.join(';')}?overview=full&geometries=geojson`;
 
       // Rota de volta: destino → paradas (reverso) → origem
       const waypointsVolta = [`${destCoords.lng},${destCoords.lat}`];
@@ -121,19 +148,17 @@ exports.calcular = async (req, res) => {
         waypointsVolta.push(`${paradasCoords[i].lng},${paradasCoords[i].lat}`);
       }
       waypointsVolta.push(`${origCoords.lng},${origCoords.lat}`);
-      const urlVolta = `https://router.project-osrm.org/route/v1/driving/${waypointsVolta.join(';')}?overview=full&geometries=geojson&steps=true`;
+      const urlVolta = `https://router.project-osrm.org/route/v1/driving/${waypointsVolta.join(';')}?overview=full&geometries=geojson`;
 
-      const [resIda, resVolta] = await Promise.all([
-        axios.get(urlIda),
-        axios.get(urlVolta)
-      ]);
-
-      if (!resIda.data.routes?.length || !resVolta.data.routes?.length) {
-        return res.status(400).json({ error: 'Rota não encontrada' });
+      let routeIda, routeVolta;
+      try {
+        [routeIda, routeVolta] = await Promise.all([
+          fetchOsrmRoute(urlIda),
+          fetchOsrmRoute(urlVolta)
+        ]);
+      } catch (err) {
+        return res.status(400).json({ error: `Falha ao calcular rota de ida/volta: ${err.message}` });
       }
-
-      const routeIda = resIda.data.routes[0];
-      const routeVolta = resVolta.data.routes[0];
 
       distanciaIda = Math.round((routeIda.distance / 1000) * 100) / 100;
       distanciaVolta = Math.round((routeVolta.distance / 1000) * 100) / 100;
@@ -142,14 +167,9 @@ exports.calcular = async (req, res) => {
       rotaGeoJSON = routeIda.geometry;
     } else {
       // Uma chamada OSRM (sem paradas, ou sem ida e volta)
-      const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${waypoints.join(';')}?overview=full&geometries=geojson&steps=true`;
-      const { data: routeData } = await axios.get(osrmUrl);
+      const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${waypoints.join(';')}?overview=full&geometries=geojson`;
+      const route = await fetchOsrmRoute(osrmUrl);
 
-      if (!routeData.routes || !routeData.routes.length) {
-        return res.status(400).json({ error: 'Rota não encontrada' });
-      }
-
-      const route = routeData.routes[0];
       const distOneWay = route.distance / 1000;
 
       if (idaEVolta) {
@@ -169,23 +189,25 @@ exports.calcular = async (req, res) => {
     const minutos = Math.round((tempoSeg % 3600) / 60);
     const tempoEstimado = horas > 0 ? `${horas}h ${minutos}min` : `${minutos}min`;
 
-    const dias = parseInt(req.body.dias) || 1;
+    const dias = Math.max(1, parseInt(req.body.dias) || 1);
     const distanciaFinal = distanciaKm;
 
     const valorPorKm = valores.valorPorKm || 2.5;
     const taxaFixa = valores.taxaFixa || 10;
     const taxaPorParada = valores.taxaPorParada || 8;
-    const valPedagio = parseFloat(pedagio) || 0;
-    const valEspera = parseFloat(espera) || 0;
-    const valAjudante = parseFloat(ajudante) || 0;
-    const valAcrescimos = parseFloat(acrescimos) || 0;
-    const valDescontos = parseFloat(descontos) || 0;
+    const valPedagio = Math.max(0, parseFloat(pedagio) || 0);
+    const valEspera = Math.max(0, parseFloat(espera) || 0);
+    const valAjudante = Math.max(0, parseFloat(ajudante) || 0);
+    const valAcrescimos = Math.max(0, parseFloat(acrescimos) || 0);
+    const valDescontos = Math.max(0, parseFloat(descontos) || 0);
 
     // Calcular valor das paradas
     const totalParadas = paradasValidas.length;
     const valorParadas = totalParadas > 0 ? totalParadas * taxaPorParada : 0;
 
-    const valorTotal = ((distanciaFinal * valorPorKm) + taxaFixa + valPedagio + valEspera + valAjudante + valAcrescimos + valorParadas - valDescontos) * dias;
+    const valorTotal = Math.max(0,
+      ((distanciaFinal * valorPorKm) + taxaFixa + valPedagio + valEspera + valAjudante + valAcrescimos + valorParadas - valDescontos) * dias
+    );
 
     const corrida = await Corrida.create({
       cliente: cliente || '',

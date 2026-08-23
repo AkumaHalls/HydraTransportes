@@ -1,6 +1,6 @@
 {
   "name": "hydra-transportes",
-  "version": "1.4.0",
+  "version": "1.4.2",
   "description": "Hydra Transportes Urgentes - Sistema de fretes, entregas e corridas para motoristas autônomos",
   "main": "server.js",
   "scripts": {
