@@ -5,6 +5,16 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.3.2] - 2026-08-23
+
+### Corrigido
+- **CRÍTICO**: Removido `import.meta` que causava SyntaxError e impedia todo o JavaScript de carregar (menus, botões, nada funcionava)
+- Token Mapbox agora é servido pelo backend via `/api/config` (compatível com Portainer env vars)
+- Função `mapboxReverseGeocode` estava sendo chamada mas nunca definida (crash ao usar seletor de mapa)
+- Autocomplete agora salva lat/lng ao selecionar sugestão (enviado ao backend para geocodificação precisa)
+- Guards de segurança para mapas quando token não configurado
+- Backend protege token contra sobrescrita via update de config
+
 ## [1.3.0] - 2026-08-23
 
 ### Adicionado
