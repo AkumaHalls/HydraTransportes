@@ -333,18 +333,37 @@ function generateAddressVariations(address) {
   return [...new Set(variations)];
 }
 
+async function mapboxGeocodeSearch(query, limit = 1) {
+  if (!MAPBOX_TOKEN) return [];
+  try {
+    const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=${limit}&language=pt&country=br&types=address,place,poi,neighborhood,locality`);
+    const data = await res.json();
+    if (data.features?.length) {
+      return data.features.map(f => ({
+        lat: f.center[1],
+        lon: f.center[0],
+        display_name: f.place_name,
+        place_id: f.id,
+        importance: f.relevance || 0
+      }));
+    }
+  } catch (_) {}
+  return [];
+}
+
 async function tryGeocodeProviders(query, options = {}) {
-  const { limit = 1, countrycodes = 'br' } = options;
+  const { limit = 1 } = options;
+
+  const mapboxResults = await mapboxGeocodeSearch(query, limit);
+  if (mapboxResults.length) return mapboxResults;
+
   const params = new URLSearchParams({
     q: query,
     format: 'json',
     limit: String(limit),
     'accept-language': 'pt-BR,pt;q=0.9',
-    addressdetails: '1',
-    extratags: '1',
-    namedetails: '1'
+    addressdetails: '1'
   });
-  if (countrycodes) params.set('countrycodes', countrycodes);
 
   const providers = [
     { url: `https://nominatim.openstreetmap.org/search?${params}`, type: 'nominatim' },
@@ -387,7 +406,7 @@ async function geocodeAddress(address) {
   const variations = generateAddressVariations(address);
   
   for (const variation of variations) {
-    const results = await tryGeocodeProviders(variation, { limit: 1, countrycodes: 'br' });
+    const results = await tryGeocodeProviders(variation, { limit: 1 });
     if (results.length) {
       const best = results.sort((a, b) => b.importance - a.importance)[0];
       GEOCODE_CACHE.set(cacheKey, { data: best, ts: Date.now() });
@@ -396,7 +415,7 @@ async function geocodeAddress(address) {
   }
 
   for (const variation of variations) {
-    const results = await tryGeocodeProviders(variation, { limit: 1, countrycodes: null });
+    const results = await tryGeocodeProviders(variation, { limit: 1 });
     if (results.length) {
       const best = results.sort((a, b) => b.importance - a.importance)[0];
       GEOCODE_CACHE.set(cacheKey, { data: best, ts: Date.now() });
@@ -412,6 +431,17 @@ async function reverseGeocode(lat, lon) {
   const cached = GEOCODE_CACHE.get(cacheKey);
   if (cached && Date.now() - cached.ts < GEOCODE_CACHE_TTL) {
     return cached.data;
+  }
+  if (MAPBOX_TOKEN) {
+    try {
+      const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?access_token=${MAPBOX_TOKEN}&language=pt&limit=1`);
+      const data = await res.json();
+      if (data.features?.length) {
+        const result = data.features[0].place_name || data.features[0].text || `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+        GEOCODE_CACHE.set(cacheKey, { data: result, ts: Date.now() });
+        return result;
+      }
+    } catch (_) {}
   }
   try {
     const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=pt-BR`, {
@@ -442,6 +472,39 @@ async function mapboxReverseGeocode(lat, lon) {
     }
   } catch (_) {}
   return reverseGeocode(lat, lon);
+}
+
+async function fetchSuggestions(query) {
+  const cacheKey = `suggest:${query.toLowerCase().trim()}`;
+  const cached = GEOCODE_CACHE.get(cacheKey);
+  if (cached && Date.now() - cached.ts < GEOCODE_CACHE_TTL) {
+    return cached.data;
+  }
+
+  const results = await mapboxGeocodeSearch(query, 8);
+  if (results.length) {
+    GEOCODE_CACHE.set(cacheKey, { data: results, ts: Date.now() });
+    return results;
+  }
+
+  const variations = generateAddressVariations(query);
+  let allResults = [];
+  for (const variation of variations) {
+    const r = await tryGeocodeProviders(variation, { limit: 5 });
+    allResults.push(...r);
+  }
+
+  if (allResults.length) {
+    const unique = allResults.filter((v, i, a) => a.findIndex(x => x.place_id === v.place_id) === i);
+    unique.sort((a, b) => (b.importance || 0) - (a.importance || 0));
+    const top8 = unique.slice(0, 8);
+    GEOCODE_CACHE.set(cacheKey, { data: top8, ts: Date.now() });
+    return top8;
+  }
+
+  return [];
+}
+  return typeof mapboxgl !== 'undefined' && MAPBOX_TOKEN;
 }
 
 function isMapboxReady() {
@@ -564,39 +627,6 @@ async function previewAddress(address, type) {
   } catch (e) {
     document.getElementById(previewId).innerHTML = '<small class="text-muted">Erro ao buscar endereço</small>';
   }
-}
-
-async function fetchSuggestions(query) {
-  const cacheKey = `suggest:${query.toLowerCase().trim()}`;
-  const cached = GEOCODE_CACHE.get(cacheKey);
-  if (cached && Date.now() - cached.ts < GEOCODE_CACHE_TTL) {
-    return cached.data;
-  }
-
-  const variations = generateAddressVariations(query);
-  let allResults = [];
-
-  for (const variation of variations) {
-    const results = await tryGeocodeProviders(variation, { limit: 5, countrycodes: 'br' });
-    allResults.push(...results);
-  }
-
-  if (!allResults.length) {
-    for (const variation of variations) {
-      const results = await tryGeocodeProviders(variation, { limit: 5, countrycodes: null });
-      allResults.push(...results);
-    }
-  }
-
-  if (allResults.length) {
-    const unique = allResults.filter((v, i, a) => a.findIndex(x => x.place_id === v.place_id) === i);
-    unique.sort((a, b) => (b.importance || 0) - (a.importance || 0));
-    const top8 = unique.slice(0, 8);
-    GEOCODE_CACHE.set(cacheKey, { data: top8, ts: Date.now() });
-    return top8;
-  }
-
-  return [];
 }
 
 function setupAutocomplete(inputId, type) {
