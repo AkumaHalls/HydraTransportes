@@ -2,15 +2,7 @@ const API = '/api';
 let currentPage = 'dashboard';
 let configCache = null;
 let dashboardCharts = {};
-
-const MAPBOX_TOKEN = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_MAPBOX_TOKEN) 
-  || (typeof process !== 'undefined' && process.env?.MAPBOX_TOKEN)
-  || '';
-mapboxgl.accessToken = MAPBOX_TOKEN;
-
-if (!MAPBOX_TOKEN) {
-  console.warn('MAPBOX_TOKEN não configurado - geocodificação e mapas não funcionarão');
-}
+let MAPBOX_TOKEN = '';
 
 const GEOCODE_CACHE = new Map();
 const GEOCODE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
@@ -435,12 +427,34 @@ async function reverseGeocode(lat, lon) {
   return `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
 }
 
+async function mapboxReverseGeocode(lat, lon) {
+  if (!MAPBOX_TOKEN) return reverseGeocode(lat, lon);
+  const cacheKey = `mb_rev:${lat.toFixed(6)},${lon.toFixed(6)}`;
+  const cached = GEOCODE_CACHE.get(cacheKey);
+  if (cached && Date.now() - cached.ts < GEOCODE_CACHE_TTL) return cached.data;
+  try {
+    const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?access_token=${MAPBOX_TOKEN}&language=pt&limit=1`);
+    const data = await res.json();
+    if (data.features?.length) {
+      const name = data.features[0].place_name || data.features[0].text || `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+      GEOCODE_CACHE.set(cacheKey, { data: name, ts: Date.now() });
+      return name;
+    }
+  } catch (_) {}
+  return reverseGeocode(lat, lon);
+}
+
+function isMapboxReady() {
+  return typeof mapboxgl !== 'undefined' && MAPBOX_TOKEN;
+}
+
 let mapPickerModal = null;
 let mapPickerMap = null;
 let mapPickerMarker = null;
 let mapPickerTarget = null;
 
 function openMapPicker(type) {
+  if (!isMapboxReady()) { showToast('Mapa indisponível - configure MAPBOX_TOKEN', 'warning'); return; }
   mapPickerTarget = type;
   const input = document.getElementById(`corrida${type.charAt(0).toUpperCase() + type.slice(1)}`);
   const previewId = `${type}Preview`;
@@ -532,6 +546,7 @@ async function previewAddress(address, type) {
     }
     document.getElementById(previewId).innerHTML = `<small class="text-success"><i class="bi bi-check-circle"></i> ${escapeHtml(loc.display_name.split(',')[0])}</small>`;
 
+    if (!isMapboxReady()) { document.getElementById(mapId).style.display = 'none'; return; }
     const mapEl = document.getElementById(mapId);
     mapEl.style.display = 'block';
     if (previewMaps[type]) { previewMaps[type].remove(); }
@@ -612,6 +627,8 @@ function setupAutocomplete(inputId, type) {
     const item = e.target.closest('.suggestion-item');
     if (!item) return;
     input.value = item.dataset.display.split(',')[0].trim();
+    input.dataset.lat = item.dataset.lat;
+    input.dataset.lng = item.dataset.lon;
     suggestionsEl.style.display = 'none';
     input.dispatchEvent(new Event('input'));
   });
@@ -654,6 +671,7 @@ async function previewParada(address, idx) {
     }
     document.getElementById(previewId).innerHTML = `<small class="text-success"><i class="bi bi-check-circle"></i> ${escapeHtml(loc.display_name.split(',')[0])}</small>`;
 
+    if (!isMapboxReady()) { document.getElementById(mapId).style.display = 'none'; return; }
     const mapEl = document.getElementById(mapId);
     mapEl.style.display = 'block';
     if (paradaMaps[idx]) { paradaMaps[idx].remove(); }
@@ -822,7 +840,7 @@ async function calcularCorrida() {
 }
 
 function initResultMap(result) {
-  if (!result.rotaGeoJSON) return;
+  if (!result.rotaGeoJSON || !isMapboxReady()) return;
   const map = new mapboxgl.Map({
     container: 'resultMap',
     style: 'mapbox://styles/mapbox/streets-v12',
@@ -1618,6 +1636,10 @@ async function saveConfig() {
 (async () => {
   try {
     await loadConfig();
+    if (configCache?.mapboxToken) {
+      MAPBOX_TOKEN = configCache.mapboxToken;
+      mapboxgl.accessToken = MAPBOX_TOKEN;
+    }
     if (configCache?.personalizacao?.tema === 'dark') document.body.classList.add('dark-mode');
     if (configCache?.motorista?.logo?.startsWith('data:')) {
       const logoEl = document.getElementById('sidebarLogo');
