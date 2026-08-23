@@ -5,6 +5,14 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.3.3] - 2026-08-23
+
+### Corrigido
+- Autocomplete do frontend agora usa **Mapbox Geocoding** como provedor principal (encontra endereços que só existem no Mapbox/Google, ex: "R. Bernadete da Silveira Barbosa")
+- Fallback automático para Nominatim/Photon quando Mapbox não encontra
+- `isMapboxReady()` restaurada (acidentalmente removida)
+- Função `fetchSuggestions` duplicada removida
+
 ## [1.3.2] - 2026-08-23
 
 ### Corrigido
