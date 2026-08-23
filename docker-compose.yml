@@ -1,0 +1,13 @@
+services:
+  hydra-transportes:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hydra-transportes-web
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    restart: unless-stopped
+    environment:
+      - MONGODB_URI=${MONGODB_URI}
+      - PORT=${PORT:-3000}
+      - NODE_ENV=${NODE_ENV:-production}

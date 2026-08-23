@@ -1,0 +1,10 @@
+.env
+sensivel.txt
+.git
+.gitignore
+README.md
+node_modules
+npm-debug.log
+*.md
+install.sh
+start.sh

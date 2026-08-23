@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  hydra-transportes:
+    image: hydra-transportes-web:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hydra-transportes-web
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    restart: unless-stopped
+    environment:
+      - MONGODB_URI=${MONGODB_URI}
+      - PORT=${PORT:-3000}
+      - NODE_ENV=${NODE_ENV:-production}
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
