@@ -11,3 +11,4 @@ services:
       - MONGODB_URI=${MONGODB_URI}
       - PORT=${PORT:-3000}
       - NODE_ENV=${NODE_ENV:-production}
+      - MAPBOX_TOKEN=${MAPBOX_TOKEN}
