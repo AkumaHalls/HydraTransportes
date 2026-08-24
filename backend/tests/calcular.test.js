@@ -37,7 +37,8 @@ axios.get = async (url) => {
   if (url.includes('api.mapbox.com/geocoding')) {
     const q = decodeURIComponent(url.split('/mapbox.places/')[1].split('.json')[0]);
     mapboxQueries.push(q);
-    return { data: { features: [{ center: [-44.05, -19.85], relevance: 0.9 }] } };
+    const seed = q.length % 20;
+    return { data: { features: [{ center: [-44.05 - seed * 0.01, -19.85 - seed * 0.01], relevance: 0.9 }] } };
   }
   throw new Error('URL não mockada: ' + url);
 };
@@ -207,6 +208,77 @@ async function t(name, fn) {
     // ((162*2.5)+10+8)*2 = 423+18... conferindo: 405+10+8=423 → x2 = 846
     assert.strictEqual(r.created.valorTotal, 846);
     assert.ok(r.created.rotaGeoJSON && r.created.rotaGeoJSON.type === 'LineString');
+  });
+
+  // ===== M) Trajeto personalizado da volta (caso real do usuário) =====
+  await t('M: pontosVolta customizado usa sequência exata do usuário', async () => {
+    reset([{ distance: 25000, duration: 1800 }, { distance: 149500, duration: 9000 }]);
+    const pontosVolta = [
+      { endereco: 'Destino Teste', lat: -19.900, lng: -44.200 },
+      { endereco: 'Parada Um', lat: -19.800, lng: -44.100 },
+      { endereco: 'Parada Dois', lat: -19.850, lng: -44.150 },
+      { endereco: 'Destino Teste', lat: -19.900, lng: -44.200 }
+    ];
+    const r = await run({ ...ORIG, ...DEST, idaEVolta: true, paradas: [], pontosVolta });
+    assert.strictEqual(r.osrmUrls.length, 2, 'devia chamar OSRM 2x (ida + volta)');
+    // URL da volta = sequência exata D;P1;P2;D
+    const voltaPath = r.osrmUrls[1].split('/driving/')[1].split('?')[0];
+    assert.strictEqual(voltaPath,
+      '-44.2,-19.9;-44.1,-19.8;-44.15,-19.85;-44.2,-19.9',
+      'sequência da volta devia ser a informada, veio: ' + voltaPath);
+    assert.strictEqual(r.payload.distanciaIda, 25);
+    assert.strictEqual(r.payload.distanciaVolta, 149.5);
+    assert.strictEqual(r.payload.distanciaFinal, 174.5);
+    assert.strictEqual(mapboxQueries.length, 0, 'nada devia ser re-geocodificado');
+    assert.strictEqual(r.created.pontosVolta.length, 4);
+    assert.strictEqual(r.created.pontosVolta[3].endereco, 'Destino Teste');
+  });
+
+  // ===== N) pontosVolta inválida (<2 pontos) cai no espelhamento antigo =====
+  await t('N: pontosVolta com 1 ponto cai no comportamento legado (x2)', async () => {
+    reset([{ distance: 50000, duration: 3000 }]);
+    const r = await run({
+      origem: 'O', destino: 'D', idaEVolta: true,
+      pontosVolta: [{ endereco: 'Só Um Ponto', lat: -20, lng: -44 }]
+    });
+    assert.strictEqual(r.osrmUrls.length, 1, 'legado faz UMA chamada');
+    assert.strictEqual(r.payload.distanciaFinal, 100);
+    assert.ok(!r.created.pontosVolta || r.created.pontosVolta.length === 0,
+      'não deve persistir pontosVolta quando não usado');
+  });
+
+  // ===== O) Volta degenerada (duplicados consecutivos) é colapsada =====
+  await t('O: pontosVolta toda repetida vira degenerada e cai no legado', async () => {
+    reset([{ distance: 40000, duration: 2400 }]);
+    const r = await run({
+      origem: 'O', destino: 'D', idaEVolta: true,
+      pontosVolta: [
+        { endereco: 'Dest', lat: -19.9, lng: -44.2 },
+        { endereco: 'Dest de novo', lat: -19.9000001, lng: -44.2000001 },
+        { endereco: 'Dest outra vez', lat: -19.9, lng: -44.2 }
+      ]
+    });
+    assert.strictEqual(r.osrmUrls.length, 1, 'degenerada não pode chamar OSRM extra');
+    assert.strictEqual(r.payload.distanciaVolta, 40);
+    assert.strictEqual(r.payload.distanciaFinal, 80);
+  });
+
+  // ===== P) pontosVolta sem coordenadas é geocodificada =====
+  await t('Q: ponto de volta sem coords vai ao Mapbox na ordem', async () => {
+    reset([{ distance: 10000, duration: 600 }, { distance: 20000, duration: 1200 }]);
+    const r = await run({
+      origem: 'Rua A 1', destino: 'Rua B 2', idaEVolta: true,
+      pontosVolta: [
+        { endereco: 'Rua B 2' },
+        { endereco: 'Ponto Volta X' }
+      ]
+    });
+    assert.deepStrictEqual(mapboxQueries, ['Rua A 1', 'Rua B 2', 'Ponto Volta X']);
+    assert.strictEqual(r.osrmUrls.length, 2);
+    const voltaPath = r.osrmUrls[1].split('/driving/')[1];
+    assert.ok(voltaPath.startsWith('-44.12,-19.92'), 'volta devia começar no destino geocodificado');
+    assert.ok(voltaPath.includes('-44.18,-19.98'), 'volta devia incluir o ponto geocodificado');
+    assert.strictEqual(r.created.pontosVolta[1].lat, -19.98);
   });
 
   console.log(`\n${pass} passaram, ${fail} falharam`);

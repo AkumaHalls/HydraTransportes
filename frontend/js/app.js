@@ -274,6 +274,24 @@ async function renderCorridas() {
           <div id="paradasContainer"></div>
           <small class="text-muted">Adicione paradas intermediárias entre origem e destino. Cada parada será cobrada conforme a taxa configurada.</small>
         </div>
+        <div class="mb-3" id="secaoVolta" style="display:none">
+          <hr>
+          <label class="form-label fw-bold"><i class="bi bi-arrow-return-left"></i> Trajeto da Volta</label>
+          <div class="mb-2">
+            <small class="text-muted">Saída fixa:</small>
+            <span class="badge bg-secondary" id="voltaSaidaLabel">—</span>
+          </div>
+          <div id="voltaParadasContainer"></div>
+          <button class="btn btn-sm btn-outline-success mb-2" type="button" id="addPontoVolta"><i class="bi bi-plus-circle"></i> Adicionar Ponto na Volta</button>
+          <label class="form-label">Chegada da volta</label>
+          <div class="autocomplete-wrapper">
+            <input type="text" class="form-control" id="voltaChegada" placeholder="Endereço final da volta (padrão: origem)" autocomplete="off">
+            <div class="autocomplete-suggestions" id="voltaChegadaSuggestions"></div>
+          </div>
+          <div id="voltaChegadaPreview" class="mt-1"></div>
+          <div id="voltaChegadaMap" class="map-container mt-1" style="height:150px;display:none"></div>
+          <small class="text-muted">A volta vem espelhada da ida. Remova ou adicione pontos conforme o trajeto real.</small>
+        </div>
         <hr>
         <div class="row g-3">
           <div class="col-6 col-md-3">
@@ -346,6 +364,37 @@ async function renderCorridas() {
 
     document.getElementById('addParada').addEventListener('click', () => {
       addParadaField();
+    });
+
+    document.getElementById('addPontoVolta').addEventListener('click', () => {
+      criarLinhaParada('volta', '#0dcaf0');
+    });
+
+    document.getElementById('corridaIdaVolta').addEventListener('change', async (e) => {
+      const sec = document.getElementById('secaoVolta');
+      if (!sec) return;
+      if (e.target.checked) {
+        sec.style.display = 'block';
+        await espelharVolta();
+      } else {
+        sec.style.display = 'none';
+        limparSecaoVolta();
+      }
+    });
+
+    setupAutocomplete('voltaChegada', 'voltaChegadaSuggestions', (loc) => {
+      renderPreview('voltaChegadaMap', 'voltaChegadaPreview', loc, '#0dcaf0', 'Chegada da volta');
+    });
+    const chegadaEl = document.getElementById('voltaChegada');
+    let chegTimeout;
+    chegadaEl.addEventListener('input', () => {
+      clearTimeout(chegTimeout);
+      if (chegadaEl.value.trim().length < 5) {
+        document.getElementById('voltaChegadaMap').style.display = 'none';
+        document.getElementById('voltaChegadaPreview').innerHTML = '';
+        return;
+      }
+      chegTimeout = setTimeout(() => geocodeIntoDataset(chegadaEl, 'voltaChegadaMap', 'voltaChegadaPreview', '#0dcaf0', 'Chegada da volta'), 1200);
     });
   } catch (err) {
     el.innerHTML = `<div class="alert alert-danger">${escapeHtml(err.message)}</div>`;
@@ -758,52 +807,135 @@ function setupAutocomplete(inputId, type, onSelect) {
 
 let paradaIndex = 0;
 
-function addParadaField(endereco, lat, lng) {
-  const container = document.getElementById('paradasContainer');
+function criarLinhaParada(prefixo, cor, endereco, lat, lng) {
+  const containerId = prefixo === 'parada' ? 'paradasContainer' : 'voltaParadasContainer';
+  const container = document.getElementById(containerId);
   const idx = paradaIndex++;
+  const placeholder = prefixo === 'parada' ? 'Endereço da parada' : 'Endereço do ponto da volta';
+  const label = prefixo === 'parada' ? 'Parada' : 'Parada da volta';
   const div = document.createElement('div');
-  div.className = 'mb-2 parada-row';
-  div.id = `paradaRow_${idx}`;
+  div.className = `mb-2 ${prefixo}-row`;
+  div.id = `${prefixo}Row_${idx}`;
   div.innerHTML = `
     <div class="input-group mb-1">
+      <button class="btn btn-outline-secondary btn-sm" type="button" title="Mover para cima" onclick="moverLinha('${prefixo}Row_${idx}', -1)"><i class="bi bi-arrow-up"></i></button>
+      <button class="btn btn-outline-secondary btn-sm" type="button" title="Mover para baixo" onclick="moverLinha('${prefixo}Row_${idx}', 1)"><i class="bi bi-arrow-down"></i></button>
       <div class="autocomplete-wrapper flex-fill">
-        <input type="text" class="form-control parada-endereco" id="paradaEndereco_${idx}" placeholder="Endereço da parada ${idx + 1}" value="${escapeHtml(endereco || '')}" autocomplete="off">
-        <div class="autocomplete-suggestions" id="paradaSuggestions_${idx}"></div>
+        <input type="text" class="form-control ${prefixo}-endereco" id="${prefixo}Endereco_${idx}" placeholder="${placeholder}" value="${escapeHtml(endereco || '')}" autocomplete="off">
+        <div class="autocomplete-suggestions" id="${prefixo}Suggestions_${idx}"></div>
       </div>
-      <button class="btn btn-outline-danger" type="button" onclick="removerParada(${idx})"><i class="bi bi-x-circle"></i></button>
+      <button class="btn btn-outline-danger" type="button" onclick="removerLinha('${prefixo}Row_${idx}')"><i class="bi bi-x-circle"></i></button>
     </div>
-    <div id="paradaPreview_${idx}" class="mt-1"></div>
-    <div id="paradaMap_${idx}" class="map-container mt-1" style="height:150px;display:none"></div>
+    <div id="${prefixo}Preview_${idx}" class="mt-1"></div>
+    <div id="${prefixo}Map_${idx}" class="map-container mt-1" style="height:150px;display:none"></div>
   `;
   container.appendChild(div);
 
-  const inputEl = document.getElementById(`paradaEndereco_${idx}`);
+  const inputEl = document.getElementById(`${prefixo}Endereco_${idx}`);
   if (lat && lng) {
     inputEl.dataset.lat = lat;
     inputEl.dataset.lng = lng;
   }
 
-  setupAutocomplete(`paradaEndereco_${idx}`, `paradaSuggestions_${idx}`, (loc) => {
-    renderPreview(`paradaMap_${idx}`, `paradaPreview_${idx}`, loc, '#ffc107', `Parada ${idx + 1}`);
+  setupAutocomplete(`${prefixo}Endereco_${idx}`, `${prefixo}Suggestions_${idx}`, (loc) => {
+    renderPreview(`${prefixo}Map_${idx}`, `${prefixo}Preview_${idx}`, loc, cor, label);
   });
 
   let paradaTimeout;
   inputEl.addEventListener('input', () => {
     clearTimeout(paradaTimeout);
     if (inputEl.value.trim().length < 5) {
-      const mapEl = document.getElementById(`paradaMap_${idx}`);
+      const mapEl = document.getElementById(`${prefixo}Map_${idx}`);
       if (mapEl) mapEl.style.display = 'none';
-      const pv = document.getElementById(`paradaPreview_${idx}`);
+      const pv = document.getElementById(`${prefixo}Preview_${idx}`);
       if (pv) pv.innerHTML = '';
       return;
     }
-    paradaTimeout = setTimeout(() => geocodeIntoDataset(inputEl, `paradaMap_${idx}`, `paradaPreview_${idx}`, '#ffc107', `Parada ${idx + 1}`), 1200);
+    paradaTimeout = setTimeout(() => geocodeIntoDataset(inputEl, `${prefixo}Map_${idx}`, `${prefixo}Preview_${idx}`, cor, label), 1200);
   });
 }
 
-function removerParada(idx) {
-  const row = document.getElementById(`paradaRow_${idx}`);
-  if (row) row.remove();
+function addParadaField(endereco, lat, lng) {
+  criarLinhaParada('parada', '#ffc107', endereco, lat, lng);
+}
+
+function removerLinha(rowId) {
+  const row = document.getElementById(rowId);
+  if (!row) return;
+  const mapEl = row.querySelector('.map-container[id]');
+  if (mapEl && previewMaps[mapEl.id]) { previewMaps[mapEl.id].remove(); delete previewMaps[mapEl.id]; }
+  row.remove();
+}
+
+function moverLinha(rowId, direcao) {
+  const row = document.getElementById(rowId);
+  if (!row) return;
+  if (direcao < 0 && row.previousElementSibling) {
+    row.parentNode.insertBefore(row, row.previousElementSibling);
+  } else if (direcao > 0 && row.nextElementSibling) {
+    row.parentNode.insertBefore(row.nextElementSibling, row);
+  }
+}
+
+async function espelharVolta() {
+  const container = document.getElementById('voltaParadasContainer');
+  const chegadaInput = document.getElementById('voltaChegada');
+  const saidaLabel = document.getElementById('voltaSaidaLabel');
+  if (!container || !chegadaInput || !saidaLabel) return;
+
+  limparSecaoVolta();
+
+  const destinoEl = document.getElementById('corridaDestino');
+  const origemEl = document.getElementById('corridaOrigem');
+
+  saidaLabel.textContent = destinoEl.value.trim() || '—';
+
+  // Chegada espelhada = origem
+  chegadaInput.value = origemEl.value || '';
+  if (origemEl.dataset.lat && origemEl.dataset.lng) {
+    chegadaInput.dataset.lat = origemEl.dataset.lat;
+    chegadaInput.dataset.lng = origemEl.dataset.lng;
+    renderPreview('voltaChegadaMap', 'voltaChegadaPreview', {
+      lat: parseFloat(origemEl.dataset.lat),
+      lon: parseFloat(origemEl.dataset.lng),
+      display_name: origemEl.value
+    }, '#0dcaf0', 'Chegada da volta');
+  }
+
+  // Paradas da ida em ordem INVERTIDA
+  const linhasIda = [];
+  document.querySelectorAll('#paradasContainer .parada-row').forEach(row => {
+    const input = row.querySelector('.parada-endereco');
+    if (input && input.value.trim()) {
+      linhasIda.push({ endereco: input.value.trim(), lat: input.dataset.lat, lng: input.dataset.lng });
+    }
+  });
+  for (let i = linhasIda.length - 1; i >= 0; i--) {
+    criarLinhaParada('volta', '#0dcaf0', linhasIda[i].endereco,
+      parseFloat(linhasIda[i].lat) || undefined, parseFloat(linhasIda[i].lng) || undefined);
+  }
+}
+
+function limparSecaoVolta() {
+  const container = document.getElementById('voltaParadasContainer');
+  if (container) {
+    container.querySelectorAll('.map-container[id]').forEach(m => {
+      if (previewMaps[m.id]) { previewMaps[m.id].remove(); delete previewMaps[m.id]; }
+    });
+    container.innerHTML = '';
+  }
+  const pvChegada = document.getElementById('voltaChegadaPreview');
+  if (pvChegada) pvChegada.innerHTML = '';
+  const mapChegada = document.getElementById('voltaChegadaMap');
+  if (mapChegada) { mapChegada.style.display = 'none'; if (previewMaps[mapChegada.id]) { previewMaps[mapChegada.id].remove(); delete previewMaps[mapChegada.id]; } }
+  const chegadaInput = document.getElementById('voltaChegada');
+  if (chegadaInput) {
+    chegadaInput.value = '';
+    delete chegadaInput.dataset.lat;
+    delete chegadaInput.dataset.lng;
+  }
+  const saidaLabel = document.getElementById('voltaSaidaLabel');
+  if (saidaLabel) saidaLabel.textContent = '—';
 }
 
 let ultimaCorrida = null;
@@ -847,6 +979,37 @@ async function calcularCorrida() {
     }
   });
 
+  // Coletar trajeto personalizado da volta (sequência exata: destino → pontos → chegada)
+  data.pontosVolta = null;
+  if (data.idaEVolta) {
+    const secVolta = document.getElementById('secaoVolta');
+    if (secVolta && secVolta.style.display !== 'none') {
+      const destEl = document.getElementById('corridaDestino');
+      const chegadaEl = document.getElementById('voltaChegada');
+      const pontos = [{
+        endereco: destEl.value.trim(),
+        lat: destEl.dataset.lat ? parseFloat(destEl.dataset.lat) : null,
+        lng: destEl.dataset.lng ? parseFloat(destEl.dataset.lng) : null
+      }];
+      document.querySelectorAll('#voltaParadasContainer .volta-row').forEach(row => {
+        const input = row.querySelector('.volta-endereco');
+        if (input && input.value.trim()) {
+          pontos.push({
+            endereco: input.value.trim(),
+            lat: input.dataset.lat ? parseFloat(input.dataset.lat) : null,
+            lng: input.dataset.lng ? parseFloat(input.dataset.lng) : null
+          });
+        }
+      });
+      pontos.push({
+        endereco: chegadaEl.value.trim(),
+        lat: chegadaEl.dataset.lat ? parseFloat(chegadaEl.dataset.lat) : null,
+        lng: chegadaEl.dataset.lng ? parseFloat(chegadaEl.dataset.lng) : null
+      });
+      data.pontosVolta = pontos;
+    }
+  }
+
   if (!data.origem || !data.destino) {
     showToast('Preencha origem e destino', 'warning');
     return;
@@ -870,7 +1033,9 @@ async function calcularCorrida() {
         <div class="result-box">
           ${result.idaEVolta ? `
             <div class="result-item"><span>Distância (ida)</span><strong>${distIda} km</strong></div>
-            <div class="result-item"><span>Distância (volta)</span><strong>${distVolta} km</strong></div>
+            <div class="result-item"><span>Distância (volta)</span><strong>${distVolta} km</strong>
+              ${(result.pontosVolta && result.pontosVolta.length >= 2) ? `<small class="text-muted d-block">${escapeHtml(result.pontosVolta.map(p => (p.endereco || '').split(',')[0]).join(' → '))}</small>` : ''}
+            </div>
             <div class="result-item"><span>Distância total (ida e volta)</span><strong>${distFinal} km</strong></div>
           ` : `
             ${result.motoristaNome ? `<div class="result-item"><span>Motorista</span><strong>${escapeHtml(result.motoristaNome)}</strong></div>` : ''}
@@ -1215,6 +1380,30 @@ async function editarCorrida(id) {
     c.paradas.forEach(p => {
       if (p.endereco) addParadaField(p.endereco, p.lat, p.lng);
     });
+  }
+
+  // Trajeto da volta personalizado salvo
+  if (c.idaEVolta && c.pontosVolta && c.pontosVolta.length >= 2) {
+    const secVolta = document.getElementById('secaoVolta');
+    if (secVolta) {
+      secVolta.style.display = 'block';
+      limparSecaoVolta();
+      document.getElementById('voltaSaidaLabel').textContent = c.destino || '—';
+      const meio = c.pontosVolta.slice(1, -1);
+      meio.forEach(p => criarLinhaParada('volta', '#0dcaf0', p.endereco, p.lat, p.lng));
+      const chegada = c.pontosVolta[c.pontosVolta.length - 1];
+      const chInput = document.getElementById('voltaChegada');
+      if (chInput && chegada && chegada.endereco) {
+        chInput.value = chegada.endereco;
+        if (chegada.lat && chegada.lng) {
+          chInput.dataset.lat = chegada.lat;
+          chInput.dataset.lng = chegada.lng;
+          renderPreview('voltaChegadaMap', 'voltaChegadaPreview', {
+            lat: chegada.lat, lon: chegada.lng, display_name: chegada.endereco
+          }, '#0dcaf0', 'Chegada da volta');
+        }
+      }
+    }
   }
 
   showToast('Corrida carregada para edição. Altere os campos e clique em Calcular.');

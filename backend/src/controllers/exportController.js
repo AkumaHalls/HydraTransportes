@@ -20,6 +20,7 @@ exports.csv = async (req, res) => {
       Origem: c.origem,
       Destino: c.destino,
       Paradas: c.totalParadas > 0 ? (c.paradas || []).map(p => p.endereco).join('; ') : '',
+      Pontos_Volta: (c.pontosVolta && c.pontosVolta.length >= 2) ? c.pontosVolta.map(p => p.endereco).join(' -> ') : '',
       Distancia_IDA: c.distanciaIda || c.distanciaKm,
       Distancia_VOLTA: c.distanciaVolta || 0,
       Distancia_Total: c.idaEVolta ? (c.distanciaIda || c.distanciaKm) + (c.distanciaVolta || 0) : (c.distanciaIda || c.distanciaKm),
@@ -69,6 +70,7 @@ exports.excel = async (req, res) => {
       { header: 'Origem', key: 'origem' },
       { header: 'Destino', key: 'destino' },
       { header: 'Paradas', key: 'paradas' },
+      { header: 'Pontos da Volta', key: 'pontosVolta' },
       { header: 'Distancia Ida (KM)', key: 'distanciaIda' },
       { header: 'Distancia Volta (KM)', key: 'distanciaVolta' },
       { header: 'Distancia Total (KM)', key: 'distanciaTotal' },
@@ -94,6 +96,7 @@ exports.excel = async (req, res) => {
         origem: c.origem,
         destino: c.destino,
         paradas: c.totalParadas > 0 ? (c.paradas || []).map(p => p.endereco).join('; ') : '',
+        pontosVolta: (c.pontosVolta && c.pontosVolta.length >= 2) ? c.pontosVolta.map(p => p.endereco).join(' -> ') : '',
         distanciaIda: dIda,
         distanciaVolta: dVolta,
         distanciaTotal: c.idaEVolta ? dIda + dVolta : dIda,
@@ -156,6 +159,9 @@ exports.pdfRelatorio = async (req, res) => {
       doc.text(`Destino: ${c.destino}`);
       if (c.paradas && c.paradas.length > 0) {
         doc.text(`Paradas: ${c.paradas.map(p => p.endereco).join('; ')}`);
+      }
+      if (c.pontosVolta && c.pontosVolta.length >= 2) {
+        doc.text(`Trajeto da volta: ${c.pontosVolta.map(p => p.endereco).join(' -> ')}`);
       }
       const distTxt = c.idaEVolta
         ? `Distancia: ${dIda} km (ida) + ${dVolta} km (volta) = ${distFinal} km total`
@@ -331,6 +337,12 @@ exports.comprovante = async (req, res) => {
     if (corrida.idaEVolta) {
       linhaValor('Distancia (ida):', `${distIda} km`);
       linhaValor('Distancia (volta):', `${distVolta} km`);
+      if (corrida.pontosVolta && corrida.pontosVolta.length >= 2) {
+        const seq = corrida.pontosVolta.map(p => (p.endereco || '').split(',')[0]).join(' -> ');
+        doc.fill('#555555').fontSize(7.5).font('Helvetica')
+          .text(`Trajeto da volta: ${seq}`, LM + 8, y - 8, { width: pageW - 16 });
+        doc.fontSize(9);
+      }
       linhaValor('Distancia total (ida e volta):', `${distFinal} km`);
     } else {
       linhaValor('Distancia:', `${distIda} km`);

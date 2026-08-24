@@ -35,6 +35,11 @@ const corridaSchema = new mongoose.Schema({
     lng: { type: Number },
     valorParada: { type: Number, default: 0 }
   }],
+  pontosVolta: [{
+    endereco: { type: String },
+    lat: { type: Number },
+    lng: { type: Number }
+  }],
   totalParadas: { type: Number, default: 0 },
   taxaPorParada: { type: Number, default: 0 }
 }, { timestamps: true });

@@ -80,7 +80,7 @@ async function fetchOsrmRoute(url) {
 
 exports.calcular = async (req, res) => {
   try {
-    const { origem, destino, origemLat, origemLng, destinoLat, destinoLng, idaEVolta, pedagio, espera, ajudante, acrescimos, descontos, cliente, servico, clienteId, servicoId, observacoes, paradas } = req.body;
+    const { origem, destino, origemLat, origemLng, destinoLat, destinoLng, idaEVolta, pedagio, espera, ajudante, acrescimos, descontos, cliente, servico, clienteId, servicoId, observacoes, paradas, pontosVolta } = req.body;
 
     const config = await Config.findOne();
     const valores = config ? config.valores : {};
@@ -129,6 +129,29 @@ exports.calcular = async (req, res) => {
       }
     }
 
+    // Trajeto personalizado da volta: sequência exata de pontos definida pelo usuário
+    // (só usado com idaEVolta; guarda anti-degenerado colapsa duplicados consecutivos)
+    const pontosVoltaCoords = [];
+    const pontosVoltaValidos = [];
+    if (idaEVolta && pontosVolta && Array.isArray(pontosVolta)) {
+      for (const p of pontosVolta) {
+        if (!p.endereco || !p.endereco.trim()) continue;
+        let coords;
+        const pLat = parseFloat(p.lat);
+        const pLng = parseFloat(p.lng);
+        if (!isNaN(pLat) && !isNaN(pLng) && pLat !== 0 && pLng !== 0) {
+          coords = { lat: pLat, lng: pLng };
+        } else {
+          coords = await geocodeAddress(p.endereco);
+        }
+        const prev = pontosVoltaCoords[pontosVoltaCoords.length - 1];
+        if (prev && Math.abs(prev.lat - coords.lat) < 1e-6 && Math.abs(prev.lng - coords.lng) < 1e-6) continue;
+        pontosVoltaCoords.push(coords);
+        pontosVoltaValidos.push({ endereco: p.endereco, lat: coords.lat, lng: coords.lng });
+      }
+    }
+    const usarPontosVolta = idaEVolta && pontosVoltaCoords.length >= 2;
+
     // Montar waypoints para OSRM: origem;parada1;parada2;...;destino
     const waypoints = [`${origCoords.lng},${origCoords.lat}`];
     for (const pc of paradasCoords) {
@@ -138,16 +161,21 @@ exports.calcular = async (req, res) => {
 
     let distanciaKm, distanciaIda, distanciaVolta, tempoSeg, rotaGeoJSON;
 
-    if (idaEVolta && paradasCoords.length > 0) {
+    if (idaEVolta && (usarPontosVolta || paradasCoords.length > 0)) {
       // Duas chamadas OSRM: ida e volta separadas
       const urlIda = `https://router.project-osrm.org/route/v1/driving/${waypoints.join(';')}?overview=full&geometries=geojson`;
 
-      // Rota de volta: destino → paradas (reverso) → origem
-      const waypointsVolta = [`${destCoords.lng},${destCoords.lat}`];
-      for (let i = paradasCoords.length - 1; i >= 0; i--) {
-        waypointsVolta.push(`${paradasCoords[i].lng},${paradasCoords[i].lat}`);
+      // Rota de volta: sequência personalizada do usuário OU destino → paradas (reverso) → origem
+      let waypointsVolta;
+      if (usarPontosVolta) {
+        waypointsVolta = pontosVoltaCoords.map(pc => `${pc.lng},${pc.lat}`);
+      } else {
+        waypointsVolta = [`${destCoords.lng},${destCoords.lat}`];
+        for (let i = paradasCoords.length - 1; i >= 0; i--) {
+          waypointsVolta.push(`${paradasCoords[i].lng},${paradasCoords[i].lat}`);
+        }
+        waypointsVolta.push(`${origCoords.lng},${origCoords.lat}`);
       }
-      waypointsVolta.push(`${origCoords.lng},${origCoords.lat}`);
       const urlVolta = `https://router.project-osrm.org/route/v1/driving/${waypointsVolta.join(';')}?overview=full&geometries=geojson`;
 
       let routeIda, routeVolta;
@@ -239,6 +267,7 @@ exports.calcular = async (req, res) => {
       motoristaId: (config && config.motoristaId) || null,
       motoristaNome,
       paradas: paradasValidas,
+      ...(usarPontosVolta ? { pontosVolta: pontosVoltaValidos } : {}),
       totalParadas,
       taxaPorParada
     });

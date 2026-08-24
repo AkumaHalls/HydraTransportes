@@ -5,6 +5,21 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.5.0] — 2026-08-23
+
+### Adicionado
+- **Trajeto de volta personalizável**: ao marcar "Ida e Volta", nova seção no formulário mostra o trajeto da volta pré-preenchido espelhado da ida (saída = destino, paradas em ordem invertida, chegada = origem) — edite livremente removendo/adicionando/reordenando pontos para refletir a viagem real
+- Cada ponto da volta tem autocomplete com preview de mapa (cor ciano), igual aos campos da ida
+- Botões ↑↓ em todas as paradas (ida e volta) para reordenar os pontos
+- Backend: campo `pontosVolta` na corrida; quando presente usa UMA rota OSRM na sequência exata informada pelo usuário
+- Resultado do cálculo, PDF de relatório e comprovante mostram a sequência da volta quando personalizada
+- CSV e Excel: nova coluna `Pontos_Volta` com a sequência completa
+- Suíte de testes ampliada para 16 cenários (sequência exata, fallback legado, guard anti-degenerado, geocodificação dos pontos)
+
+### Corrigido
+- Caso real: viagem que entrega no destino primeiro, faz paradas só no retorno e termina NO DESTINO (não na origem) era cobrada com rota espelhada errada (~120 km / R$ 300 a mais no exemplo real Aimorés→Cachoeirinha→Bernadete→Nair Martins→Cachoeirinha)
+- Guard anti-degenerado: pontos duplicados consecutivos na volta são colapsados; sequência com menos de 2 pontos reais cai no comportamento espelhado legado
+
 ## [1.4.2] — 2026-08-23
 
 ### Adicionado
